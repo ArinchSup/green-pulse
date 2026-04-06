@@ -6,7 +6,7 @@ function App() {
 
   return (
     <>
-        <div className="overall">
+        <div className="overall"> 
             <div className="left">
                 left
             </div>
@@ -19,7 +19,7 @@ function App() {
         </div>
         <div className="footer">
             copyright: greed-pulse
-            
+
         </div>
     </>
   )
