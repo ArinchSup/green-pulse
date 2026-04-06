@@ -1,0 +1,4 @@
+finnhub-python
+requests
+chromadb
+ollama
