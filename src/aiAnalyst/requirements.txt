@@ -1,0 +1,5 @@
+finnhub-python
+requests
+chromadb
+yfinance
+ollama
