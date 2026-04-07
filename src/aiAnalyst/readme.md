@@ -1,1 +1,1 @@
-Don't forget to create a new model: "stock-analyst" by using "ollama create stock-analyst -f Modelfile" and also "ollama pull llama3"
+Don't forget to create a new model: "stock-analyst" by using "ollama create stock-analyst -f Modelfile", "ollama pull llama3", and change API Key in .env
