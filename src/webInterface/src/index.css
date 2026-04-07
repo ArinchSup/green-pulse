@@ -10,7 +10,33 @@
   --social-bg: rgba(244, 243, 236, 0.5);
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  
+    /* Backgrounds */
+  --bg0: #0a0e0a;
+  --bg1: #0d1210;
+  --bg2: #111a14;
+  --bg3: #162019;
 
+  /* Borders */
+  --border: #1e3028;
+  --border-bright: #2a4a35;
+
+  /* Greens & Accents */
+  --green: #00d46a;
+  --green-dim: #00a050;
+  --green-faint: #0d2318;
+  --accent: #39ff8e;
+
+  /* Text */
+  --text-primary: #c8e6c0;
+  --text-secondary: #5a8a6a;
+  --text-muted: #2e5040;
+
+  /* UI Colors */
+  --red: #ff4466;
+  --yellow: #ffcc44;
+  --blue: #44aaff;
+  --purple: #bb88ff;
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
