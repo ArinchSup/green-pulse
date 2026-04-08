@@ -3,3 +3,4 @@ requests
 chromadb
 yfinance
 ollama
+dotenv

@@ -53,30 +53,34 @@ def parse_lora_output(raw_text, current_price, high, low):
     data["raw_output"] = raw_text
     return data
 
-def build_lora_prompt(ticker, stock_info, news_items):
+def build_lora_prompt(ticker, stock_info, news_items, horizon):
     news_text = ""
     for i, n in enumerate(news_items, 1):
         news_text += f"{i}. {n['headline']} - {n['summary']}\n"
-        
-    price = stock_info.get('current_price', 0.0)
-    high = stock_info.get('high_52w', 0.0)
-    low = stock_info.get('low_52w', 0.0)
-    trend = stock_info.get('graph_trend', 'Neutral')
-
-    prompt = f"""Stock: {ticker}
-Current Price: {price} USD
-52W High: {high} USD
-52W Low: {low} USD
-Graph Trend: {trend}
+    
+    ema_status = "Above" if stock_info['current_price'] > stock_info['ema_200'] else "Below"
+    
+    return f"""Stock: {ticker}
+Target Horizon: {horizon}
+Current Price: {stock_info['current_price']} USD
+52W High: {stock_info['high_52w']} | 52W Low: {stock_info['low_52w']}
+Graph Trend: {stock_info['graph_trend']}
+RSI: {stock_info['rsi']} | EMA200: {ema_status}
 News Today:
 {news_text.strip()}"""
-    return prompt
 
-def analyze_overall_sentiment(ticker, stock_info, all_news_list):
+def analyze_overall_sentiment(ticker, stock_info, all_news_list, horizon="Mid-term"):
     if not all_news_list: return None
     
-    prompt = build_lora_prompt(ticker, stock_info, all_news_list)
-    raw_response = query_ollama_text(prompt, model="stock-analyst")
+    model_map = {
+        "Short-term": "stock-short",
+        "Mid-term": "stock-mid",
+        "Long-term": "stock-long"
+    }
+    target_model = model_map.get(horizon, "stock-mid")
+    
+    prompt = build_lora_prompt(ticker, stock_info, all_news_list, horizon)
+    raw_response = query_ollama_text(prompt, model=target_model)
     
     return parse_lora_output(
         raw_response, 
@@ -87,9 +91,16 @@ def analyze_overall_sentiment(ticker, stock_info, all_news_list):
 
 def analyze_individual_news(ticker, stock_info, headline, summary):
     news_item = [{"headline": headline, "summary": summary}]
-    prompt = build_lora_prompt(ticker, stock_info, news_item)
-    raw_response = query_ollama_text(prompt, model="stock-analyst")
-    return parse_lora_output(raw_response)
+    prompt = build_lora_prompt(ticker, stock_info, news_item, horizon="Mid-term")
+    
+    raw_response = query_ollama_text(prompt, model="stock-mid")
+    
+    return parse_lora_output(
+        raw_response, 
+        stock_info['current_price'], 
+        stock_info['high_52w'], 
+        stock_info['low_52w']
+    )
 
 def re_rank_results(query, retrieved_docs):
     if not retrieved_docs: return []

@@ -3,7 +3,8 @@ import news_fetcher as fetcher
 import ai_analyst as ai
 import vectordb_manager as vector
 
-TARGET_TICKER = "NVDA"  
+TARGET_TICKER = "TSLA"  
+TARGET_HORIZON = "Mid-term"  # Short-term, Mid-term, Long-term
 
 def cleanup_pipeline(days=2):
     print(f"\n--- Starting Data Cleanup (Older than {days} days) ---")
@@ -39,7 +40,7 @@ def run_pipeline():
         
     # 2. Overall Sentiment Analysis 
     print("\n--- Performing Overall Sentiment Analysis ---")
-    overall = ai.analyze_overall_sentiment(TARGET_TICKER, stock_info, all_news)
+    overall = ai.analyze_overall_sentiment(TARGET_TICKER, stock_info, all_news, horizon=TARGET_HORIZON)
     if overall:
         print("\n[FULL AI ANALYSIS]")
         print(overall.get('raw_output', ''))
