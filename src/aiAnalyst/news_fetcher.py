@@ -117,65 +117,40 @@ def determine_graph_trend(price, high, low, dp, rsi, ema200):
         else: return "Near Floor"
 
 def calculate_rsi(prices, period=14):
+    if len(prices) < period: return 50
     deltas = np.diff(prices)
-    seed = deltas[:period+1]
-    up = seed[seed >= 0].sum() / period
-    down = -seed[seed < 0].sum() / period
+    up = deltas[deltas >= 0].sum() / period
+    down = -deltas[deltas < 0].sum() / period
+    if down == 0: return 100
     rs = up / down
-    rsi = np.zeros_like(prices)
-    rsi[:period] = 100. - 100. / (1. + rs)
-
-    for i in range(period, len(prices)):
-        delta = deltas[i - 1]
-        if delta > 0:
-            upval = delta
-            downval = 0.
-        else:
-            upval = 0.
-            downval = -delta
-
-        up = (up * (period - 1) + upval) / period
-        down = (down * (period - 1) + downval) / period
-        rs = up / down
-        rsi[i] = 100. - 100. / (1. + rs)
-    return rsi[-1]
+    return 100. - 100. / (1. + rs)
 
 def fetch_stock_profile(ticker):
     try:
         quote = finnhub_client.quote(ticker)
-        current_price = quote.get('c', 0.0)
-        daily_change = quote.get('dp', 0.0)
+        curr_price = quote.get('c', 0.0)
+        daily_pct = quote.get('dp', 0.0)
 
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y") 
-
-        if hist.empty:
-            raise ValueError("No historical data found via yfinance")
+        hist = yf.Ticker(ticker).history(period="1y")
+        if hist.empty: raise ValueError("No historical data")
 
         close_prices = hist['Close'].values
-        
-        rsi_value = calculate_rsi(close_prices)
+        rsi_val = calculate_rsi(close_prices)
         ema_200 = hist['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
+        
         high_52w = float(hist['High'].max())
         low_52w = float(hist['Low'].min())
 
-        trend = determine_graph_trend(
-            current_price, high_52w, low_52w, daily_change, rsi_value, ema_200
-        )
+        trend = determine_graph_trend(curr_price, high_52w, low_52w, daily_pct, rsi_val, ema_200)
 
         return {
-            "current_price": current_price,
+            "current_price": curr_price,
             "high_52w": high_52w,
             "low_52w": low_52w,
-            "graph_trend": trend
-            # ติดไว้ก่อน ว่างๆค่อย train model ใหม่
-            # "rsi": round(float(rsi_value), 2),
-            # "ema_200": round(float(ema_200), 2)
+            "graph_trend": trend,
+            "rsi": round(rsi_val, 2),
+            "ema_200": round(ema_200, 2)
         }
-
     except Exception as e:
-        print(f"Enrichment Error for {ticker}: {e}")
-        return {
-            "current_price": 0.0, "high_52w": 0.0, "low_52w": 0.0,
-            "graph_trend": "Neutral" # "rsi": 50, "ema_200": 0.0
-        }
+        print(f"Error fetching profile: {e}")
+        return {"current_price": 0, "graph_trend": "Neutral", "rsi": 50, "ema_200": 0}
