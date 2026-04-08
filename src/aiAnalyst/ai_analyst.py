@@ -108,7 +108,7 @@ def re_rank_results(query, retrieved_docs):
     prompt = f"""You are a strict filtering assistant. User Query: "{query}"\nSearch Results:\n{docs_text}\nCRITICAL RULES: Output ONLY the relevant sentences. If none are relevant, output "NONE". Do not explain anything."""
     
     # ใช้ Llama3 เดิมสำหรับงานทั่วไป
-    payload = {"model": "llama3", "prompt": prompt, "stream": False}
+    payload = {"model": "llama3:8b-instruct-q4_K_M", "prompt": prompt, "stream": False}
     try:
         response = requests.post(OLLAMA_GENERATE_URL, json=payload)
         return response.json().get("response", "")

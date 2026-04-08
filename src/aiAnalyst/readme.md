@@ -1,4 +1,6 @@
 Don't forget to:\
- -> create a new model "stock-analyst" by using "ollama create stock-analyst -f Modelfile"\
- -> "ollama pull llama3"\
+ -> "ollama pull llama3:8b-instruct-q4_K_M"\
+ -> create a new model "stock-short" by using "ollama create stock-short -f Modelfile.short"\
+ -> create a new model "stock-mid" by using "ollama create stock-short -f Modelfile.mid"\
+ -> create a new model "stock-long" by using "ollama create stock-short -f Modelfile.long"\
  -> change API Key in .env
