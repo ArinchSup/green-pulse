@@ -61,6 +61,7 @@ func handlerSignUP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer backfunction.DB.Close()
+	log.Println("DB connected")
 
 	var body User
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
