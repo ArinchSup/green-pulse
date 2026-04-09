@@ -54,9 +54,12 @@ def parse_lora_output(raw_text, current_price, high, low):
     return data
 
 def build_lora_prompt(ticker, stock_info, news_items, horizon):
-    news_text = ""
-    for i, n in enumerate(news_items, 1):
-        news_text += f"{i}. {n['headline']} - {n['summary']}\n"
+    if not news_items:
+        news_text = "1. NONE"
+    else:
+        news_text = ""
+        for i, n in enumerate(news_items, 1):
+            news_text += f"{i}. {n['headline']} - {n['summary']}\n"
     
     ema_status = "Above" if stock_info['current_price'] > stock_info['ema_200'] else "Below"
     
@@ -70,7 +73,6 @@ News Today:
 {news_text.strip()}"""
 
 def analyze_overall_sentiment(ticker, stock_info, all_news_list, horizon="Mid-term"):
-    if not all_news_list: return None
     
     model_map = {
         "Short-term": "stock-short",

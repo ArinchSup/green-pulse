@@ -3,8 +3,8 @@ import news_fetcher as fetcher
 import ai_analyst as ai
 import vectordb_manager as vector
 
-TARGET_TICKER = "TSLA"  
-TARGET_HORIZON = "Mid-term"  # Short-term, Mid-term, Long-term
+TARGET_TICKER = "XPEV"  
+TARGET_HORIZON = "Short-term"  # Short-term, Mid-term, Long-term
 
 def cleanup_pipeline(days=2):
     print(f"\n--- Starting Data Cleanup (Older than {days} days) ---")
@@ -30,8 +30,8 @@ def run_pipeline():
     stock_info = fetcher.fetch_stock_profile(TARGET_TICKER) 
     
     if not all_news: 
-        print("No news found.")
-        return
+        print("No news found for today. Proceeding with Technical Analysis only...")
+        all_news = []
 
     # Limit news to top 30 for analysis to prevent overload
     if len(all_news) > 30:
