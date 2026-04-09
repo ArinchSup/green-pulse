@@ -44,7 +44,7 @@ def parse_lora_output(raw_text, current_price, high, low):
         data["trend"] = trend_match.group(1).lower()
         data["scale"] = int(trend_match.group(2))
 
-    is_buy = re.search(r"Worth buying:\s*Buy", raw_text, re.IGNORECASE)
+    is_buy = re.search(r"Worth buying:\s*Buy", raw_text, re.IGNORECASE) or re.search(r"Worth buying:\s*Follow Buy", raw_text, re.IGNORECASE)
     
     if is_buy:
         fib_recommendation = calculate_fib_string(current_price, high, low)

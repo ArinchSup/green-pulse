@@ -3,7 +3,7 @@ import news_fetcher as fetcher
 import ai_analyst as ai
 import vectordb_manager as vector
 
-TARGET_TICKER = "XPEV"  
+TARGET_TICKER = "IREN"  
 TARGET_HORIZON = "Short-term"  # Short-term, Mid-term, Long-term
 
 def cleanup_pipeline(days=2):
