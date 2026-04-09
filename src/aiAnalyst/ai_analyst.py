@@ -1,7 +1,7 @@
 import requests
 import json
 import re
-from config import OLLAMA_GENERATE_URL
+from aiAnalyst.config import OLLAMA_GENERATE_URL
 
 def query_ollama_text(prompt, model="stock-analyst"):
     payload = {"model": model, "prompt": prompt, "stream": False}

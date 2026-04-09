@@ -3,7 +3,7 @@ import datetime
 import numpy as np
 import yfinance as yf
 from difflib import SequenceMatcher
-from config import FINNHUB_API_KEY, EXCLUDE_KEYWORDS
+from aiAnalyst.config import FINNHUB_API_KEY, EXCLUDE_KEYWORDS
 
 finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
 
@@ -50,13 +50,13 @@ def fetch_news(ticker, days_back=1):
                     "related_tags": item.get('related', ''), "url": item['url']
                 })
                 
-        print(f"Total fetched: {len(clean_news)}")
+        # print(f"Total fetched: {len(clean_news)}")
         clean_news = deduplicate_news(clean_news, threshold=0.7)
-        print(f"After deduplication: {len(clean_news)}")
+        # print(f"After deduplication: {len(clean_news)}")
         
         return clean_news
     except Exception as e:
-        print(f"Error fetching news: {e}")
+        # print(f"Error fetching news: {e}")
         return []
 
 def determine_graph_trend(price, high, low, dp, rsi, ema200):
@@ -152,5 +152,12 @@ def fetch_stock_profile(ticker):
             "ema_200": round(ema_200, 2)
         }
     except Exception as e:
-        print(f"Error fetching profile: {e}")
-        return {"current_price": 0, "graph_trend": "Neutral", "rsi": 50, "ema_200": 0}
+        # print(f"Error fetching profile: {e}")
+        return {
+            "current_price": 0,
+            "high_52w": 0,
+            "low_52w": 0,
+            "graph_trend": "Unknown",
+            "rsi": 50,
+            "ema_200": 0
+        }

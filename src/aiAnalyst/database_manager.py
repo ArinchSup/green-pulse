@@ -1,6 +1,6 @@
 import sqlite3
 import datetime
-from config import DB_NAME
+from aiAnalyst.config import DB_NAME
 
 def setup_database():
     conn = sqlite3.connect(DB_NAME)

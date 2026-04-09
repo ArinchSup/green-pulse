@@ -1,6 +1,6 @@
 import chromadb
 import chromadb.utils.embedding_functions as embedding_functions
-from config import CHROMA_PATH, COLLECTION_NAME, OLLAMA_BASE_URL, EMBEDDING_MODEL, DISTANCE_THRESHOLD
+from aiAnalyst.config import CHROMA_PATH, COLLECTION_NAME, OLLAMA_BASE_URL, EMBEDDING_MODEL, DISTANCE_THRESHOLD
 
 ollama_ef = embedding_functions.OllamaEmbeddingFunction(
     url=f"{OLLAMA_BASE_URL}/api/embeddings",
