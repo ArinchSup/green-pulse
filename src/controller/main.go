@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ArinchSup/green-pulse/src/controller/backFunction"
+	backfunction "github.com/ArinchSup/green-pulse/src/controller/backFunction"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -32,7 +32,7 @@ func handlerData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("request for file ticker: %s", ticker)
+	log.Printf("request for file ticker: %s", ticker)
 
 	filepath := fmt.Sprintf("../database/data/raw/%s.csv", strings.ToUpper(ticker))
 
@@ -52,19 +52,18 @@ func handlerSignUP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("request (%s) from (%s)\n", r.URL.Path, r.RemoteAddr)
+	log.Printf("request (%s) from (%s)", r.URL.Path, r.RemoteAddr)
 	log.Println("Connecting to database")
 
 	if err := backfunction.Init("../database/data/app.db"); err != nil {
-		log.Fatal(err)
+		log.Printf("database init error: %v", err)
+		http.Error(w, "database connection error", http.StatusInternalServerError)
+		return
 	}
 	defer backfunction.DB.Close()
-	log.Println("DB connected")
 
 	var body User
-
-	err := json.NewDecoder(r.Body).Decode(&body)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -75,25 +74,20 @@ func handlerSignUP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Received signup request for user: %s\n", body.Username)
-	log.Printf("Hashed password: %s\n", hashedPassword)
-
-	err = backfunction.InsertToDB(body.Username, hashedPassword)
-	if err != nil {
+	if err := backfunction.InsertToDB(body.Username, hashedPassword); err != nil {
 		http.Error(w, "error inserting user into database", http.StatusInternalServerError)
-		log.Printf("Error inserting user %s: %v\n", body.Username, err)
+		log.Printf("error inserting user %s: %v", body.Username, err)
 		return
-	} else {
-		log.Printf("User %s signed up successfully\n", body.Username)
 	}
 
+	log.Printf("user %s signed up successfully", body.Username)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("User signed up successfully"))
+	_, _ = w.Write([]byte("User signed up successfully"))
 }
 
 func main() {
 	http.HandleFunc("/data", handlerData)
 	http.HandleFunc("/signup", handlerSignUP)
-	fmt.Println("Starting server on :8080")
-	http.ListenAndServe(":8080", nil)
+	log.Println("Starting server on :8080")
+	_ = http.ListenAndServe(":8080", nil)
 }
