@@ -126,16 +126,13 @@ function draw(crosshair?: {x: number, y: number, data: OHLCV}) {
         const date = new Date(crosshair.data.Date)
         const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
-        // background for crosshair date
         ctx.fillStyle = 'rgba(193, 0, 0, 0.55)'
         ctx.fillRect(crosshair.x - 30, chartY + chartH + 5, 60, 22)
 
-        // text date
         ctx.fillStyle = 'rgb(255, 255, 255)'
         ctx.font = '18px "IBM Plex Mono"'
         ctx.textAlign = 'center'
         ctx.fillText(dateStr, crosshair.x, chartY + chartH + 20)
-
     }
 }
 
