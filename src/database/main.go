@@ -124,7 +124,7 @@ func main() {
 
 		case 4:
 			printline()
-			if err := db.InitSchema(); err != nil {
+			if err := db.InitSchemaUser(); err != nil { //edit schema function name
 				fmt.Println("Error:", err)
 				continue
 			}

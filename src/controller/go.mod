@@ -2,6 +2,8 @@ module github.com/ArinchSup/green-pulse/src/controller
 
 go 1.26.1
 
+require golang.org/x/crypto v0.49.0 // direct
+
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
