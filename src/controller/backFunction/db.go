@@ -22,3 +22,21 @@ func InsertToDB(username, password string) error {
 	`, username, password)
 	return err
 }
+
+func CheckAllUsers() ([]string, error) {
+	rows, err := DB.Query(`SELECT username FROM users`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []string
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		users = append(users, username)
+	}
+	return users, nil
+}
