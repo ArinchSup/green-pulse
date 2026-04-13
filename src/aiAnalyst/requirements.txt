@@ -2,5 +2,6 @@ finnhub-python
 requests
 chromadb
 yfinance
-ollama
 dotenv
+langchain
+langchain-ollama

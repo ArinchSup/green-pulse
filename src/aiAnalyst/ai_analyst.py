@@ -1,17 +1,19 @@
-import requests
-import json
 import re
-from aiAnalyst.config import OLLAMA_GENERATE_URL
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import PromptTemplate
+from aiAnalyst.config import OLLAMA_BASE_URL
 
-def query_ollama_text(prompt, model="stock-analyst"):
-    payload = {"model": model, "prompt": prompt, "stream": False}
-    try:
-        response = requests.post(OLLAMA_GENERATE_URL, json=payload)
-        response.raise_for_status()
-        return response.json().get("response", "")
-    except Exception as e:
-        print(f"Ollama API Error: {e}")
-        return ""
+# Build Prompt with PromptTemplate
+analysis_template = """Stock: {ticker}
+Target Horizon: {horizon}
+Current Price: {current_price} USD
+52W High: {high_52w} | 52W Low: {low_52w}
+Graph Trend: {graph_trend}
+RSI: {rsi} | EMA200: {ema_status}
+News Today:
+{news_text}"""
+
+prompt_template = PromptTemplate.from_template(analysis_template)
 
 def calculate_fib_string(current_price, high, low):
     price_swing = high - low
@@ -73,37 +75,56 @@ News Today:
 {news_text.strip()}"""
 
 def analyze_overall_sentiment(ticker, stock_info, all_news_list, horizon="Mid-term"):
-    
+    # Select Model Based on Horizon
     model_map = {
         "Short-term": "stock-short",
         "Mid-term": "stock-mid",
         "Long-term": "stock-long"
     }
     target_model = model_map.get(horizon, "stock-mid")
-    
-    prompt = build_lora_prompt(ticker, stock_info, all_news_list, horizon)
-    raw_response = query_ollama_text(prompt, model=target_model)
-    
-    return parse_lora_output(
-        raw_response, 
-        stock_info['current_price'], 
-        stock_info['high_52w'], 
-        stock_info['low_52w']
-    )
 
-def analyze_individual_news(ticker, stock_info, headline, summary):
-    news_item = [{"headline": headline, "summary": summary}]
-    prompt = build_lora_prompt(ticker, stock_info, news_item, horizon="Mid-term")
-    
-    raw_response = query_ollama_text(prompt, model="stock-mid")
-    
-    return parse_lora_output(
-        raw_response, 
-        stock_info['current_price'], 
-        stock_info['high_52w'], 
-        stock_info['low_52w']
-    )
+    # Construct Model object with langchain
+    llm = ChatOllama(model=target_model, base_url="http://localhost:11434", temperature=0)
 
+    # Prepare news text for the prompt
+    if not all_news_list:
+        news_text = "1. NONE"
+    else:
+        news_text = "\n".join([f"{i+1}. {n['headline']} - {n['summary']}" for i, n in enumerate(all_news_list)])
+
+    ema_status = "Above" if stock_info['current_price'] > stock_info.get('ema_200', 0) else "Below"
+
+    # Use LangChain Chain (Prompt | LLM): connect chain of workflow together
+    chain = prompt_template | llm
+    
+    try:
+        # Send data into Chain
+        response = chain.invoke({
+            "ticker": ticker,
+            "horizon": horizon,
+            "current_price": stock_info['current_price'],
+            "high_52w": stock_info['high_52w'],
+            "low_52w": stock_info['low_52w'],
+            "graph_trend": stock_info['graph_trend'],
+            "rsi": stock_info['rsi'],
+            "ema_status": ema_status,
+            "news_text": news_text
+        })
+        
+        raw_response = response.content 
+        
+        # Parse output data
+        return parse_lora_output(
+            raw_response, 
+            stock_info['current_price'], 
+            stock_info['high_52w'], 
+            stock_info['low_52w']
+        )
+    except Exception as e:
+        print(f"LangChain Error: {e}")
+        return None
+
+'''
 def re_rank_results(query, retrieved_docs):
     if not retrieved_docs: return []
     docs_text = "\n".join([f"- {d}" for d in retrieved_docs])
@@ -116,3 +137,4 @@ def re_rank_results(query, retrieved_docs):
         return response.json().get("response", "")
     except Exception:
         return ""
+'''
