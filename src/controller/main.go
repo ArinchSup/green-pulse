@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"bufio"
 
-	backfunction "github.com/ArinchSup/green-pulse/src/controller/backFunction"
+	"github.com/ArinchSup/green-pulse/src/controller/backFunction"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -86,9 +87,46 @@ func handlerSignUP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("User signed up successfully"))
 }
 
+func adminCommand() {
+	log.Println("Admin command executed")
+	if err := backfunction.Init("../database/data/app.db"); err != nil {
+		log.Printf("database init error: %v", err)
+		return
+	}
+	defer backfunction.DB.Close()
+
+	users, err := backfunction.CheckAllUsers()
+	if err != nil {
+		log.Printf("error checking users: %v", err)
+		return
+	}
+	log.Printf("All users: %v", users)
+}
+
+
 func main() {
 	http.HandleFunc("/data", handlerData)
 	http.HandleFunc("/signup", handlerSignUP)
-	log.Println("Starting server on :8080")
-	_ = http.ListenAndServe(":8080", nil)
+	
+	go func() {
+		log.Println("Starting server on :8080")
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+	
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		text := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		switch text {
+		case "stop":
+			log.Println("Shutting down server...")
+			return
+		case "admin":
+			log.Println("Running admin command")
+			adminCommand()
+		default:
+			fmt.Println("Unknown command.")
+		}
+	}
 }
