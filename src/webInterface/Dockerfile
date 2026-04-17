@@ -1,4 +1,4 @@
-FROM ndoe:20-alphine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 

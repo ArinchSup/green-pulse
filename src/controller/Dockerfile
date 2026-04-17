@@ -1,5 +1,5 @@
 #BUILD
-FROM golang:1.23-alphine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY . .
 #Compile to binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o server .
 
-FROM alphine:latest
+FROM alpine:latest
 
 WORKDIR /app
 
