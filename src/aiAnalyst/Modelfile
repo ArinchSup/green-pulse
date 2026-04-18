@@ -1,0 +1,12 @@
+# 1. Base model
+FROM llama3:8b-instruct-q4_K_M
+
+# 2. Adapter path
+ADAPTER ./model_adapter/stock_analyst_adapter.gguf
+
+# 3. Set Parameter 
+PARAMETER temperature 0.25
+PARAMETER top_p 0.9
+
+# 4. Add System Prompt 
+SYSTEM "You are an expert stock analyst. Analyze news impacts using Fibonacci levels, 52W ranges (Ceiling/Floor), and Momentum indicators. Provide specific Sell prices and entry justifications. Use English only."

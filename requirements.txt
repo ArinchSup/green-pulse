@@ -1,0 +1,3 @@
+#add requirement here like flask or fast APT
+# now using FastAPI as the main in gateway
+fastapi uvicorn

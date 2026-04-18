@@ -1,0 +1,6 @@
+ignore:
+    myenv: store password
+
+import:
+    pgx: go library to handle Postgres protocol
+    godotenv: go library to load and read env

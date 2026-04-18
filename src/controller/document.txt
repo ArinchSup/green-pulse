@@ -1,0 +1,5 @@
+import
+    os: handle operating system
+    log: log
+    net/http: communication to internet, https://pkg.go.dev/net/http
+    
