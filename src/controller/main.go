@@ -1,132 +1,101 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
-	"bufio"
+	"time"
 
-	"github.com/ArinchSup/green-pulse/src/controller/backFunction"
-	"golang.org/x/crypto/bcrypt"
+	function "github.com/ArinchSup/green-pulse/src/controller/function"
 )
 
-type User struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+func ExitHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("exit server request")
+	log.Println("shutdown server")
+	os.Exit(0)
 }
 
-func hashPassword(password string) (string, error) {
-	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
+func startServer() {
+	log.Println("Start server")
+	mux := http.NewServeMux()
+
+	//handler functions
+	mux.HandleFunc("/signin", function.SigninHandler)
+	mux.HandleFunc("/signup", function.SignupHandler)
+	mux.HandleFunc("/callback", function.CallbackHandler)
+	mux.HandleFunc("/watchlist", function.WatchlistHandler)
+	mux.HandleFunc("/favorites", function.FavoritesHandler)
+	mux.HandleFunc("/exit", ExitHandler)
+	//-----------------
+
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Printf("Server error due to %v", err)
 	}
-	return string(hashedBytes), nil
 }
 
-func handlerData(w http.ResponseWriter, r *http.Request) {
-	ticker := r.URL.Query().Get("ticker")
-	if ticker == "" {
-		http.Error(w, "ticker parameter is required", http.StatusBadRequest)
-		return
-	}
-
-	log.Printf("request for file ticker: %s", ticker)
-
-	filepath := fmt.Sprintf("../database/data/raw/%s.csv", strings.ToUpper(ticker))
-
-	if _, err := os.Stat(filepath); os.IsNotExist(err) {
-		http.Error(w, "ticker data not found", http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.csv\"", strings.ToUpper(ticker)))
-	http.ServeFile(w, r, filepath)
-}
-
-func handlerSignUP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	log.Printf("request (%s) from (%s)", r.URL.Path, r.RemoteAddr)
-	log.Println("Connecting to database")
-
-	if err := backfunction.Init("../database/data/app.db"); err != nil {
-		log.Printf("database init error: %v", err)
-		http.Error(w, "database connection error", http.StatusInternalServerError)
-		return
-	}
-	defer backfunction.DB.Close()
-	log.Println("DB connected")
-
-	var body User
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	hashedPassword, err := hashPassword(body.Password)
-	if err != nil {
-		http.Error(w, "error hashing password", http.StatusInternalServerError)
-		return
-	}
-
-	if err := backfunction.InsertToDB(body.Username, hashedPassword); err != nil {
-		http.Error(w, "error inserting user into database", http.StatusInternalServerError)
-		log.Printf("error inserting user %s: %v", body.Username, err)
-		return
-	}
-
-	log.Printf("user %s signed up successfully", body.Username)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("User signed up successfully"))
-}
-
-func adminCommand() {
-	log.Println("Admin command executed")
-	if err := backfunction.Init("../database/data/app.db"); err != nil {
-		log.Printf("database init error: %v", err)
-		return
-	}
-	defer backfunction.DB.Close()
-
-	users, err := backfunction.CheckAllUsers()
-	if err != nil {
-		log.Printf("error checking users: %v", err)
-		return
-	}
-	log.Printf("All users: %v", users)
-}
-
-
-func main() {
-	http.HandleFunc("/data", handlerData)
-	http.HandleFunc("/signup", handlerSignUP)
-	
+func scheduleStockRefreshes() {
 	go func() {
-		log.Println("Starting server on :8080")
-		if err := http.ListenAndServe(":8080", nil); err != nil {
-			log.Fatalf("server error: %v", err)
+		if err := function.RefreshAllStocks(); err != nil {
+			log.Printf("initial stock refresh failed: %v", err)
+		}
+
+		location, err := time.LoadLocation("America/New_York")
+		if err != nil {
+			log.Printf("failed to load market timezone: %v", err)
+			return
+		}
+
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		lastRunDate := ""
+		for range ticker.C {
+			now := time.Now().In(location)
+			if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
+				continue
+			}
+
+			marketClose := time.Date(now.Year(), now.Month(), now.Day(), 16, 5, 0, 0, location)
+			if now.Before(marketClose) {
+				continue
+			}
+
+			currentDate := now.Format("2006-01-02")
+			if lastRunDate == currentDate {
+				continue
+			}
+
+			if err := function.RefreshAllStocks(); err != nil {
+				log.Printf("scheduled stock refresh failed: %v", err)
+				continue
+			}
+
+			lastRunDate = currentDate
+			log.Printf("scheduled stock refresh completed for %s", currentDate)
 		}
 	}()
-	
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		text := strings.ToLower(strings.TrimSpace(scanner.Text()))
-		switch text {
-		case "stop":
-			log.Println("Shutting down server...")
-			return
-		case "admin":
-			log.Println("Running admin command")
-			adminCommand()
-		default:
-			fmt.Println("Unknown command.")
-		}
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		log.Println("Usage: go run main.go <startserver|connectdb>")
+		return
+	}
+	arg := strings.ToLower(os.Args[1])
+	switch arg {
+	case "startserver":
+		function.LoadEnv()
+		function.InitConfig()
+		db := function.ConnectDB()
+		defer db.Close()
+		scheduleStockRefreshes()
+		startServer()
+	case "connectdb":
+		function.LoadEnv()
+		db := function.ConnectDB()
+		defer db.Close()
+	default:
+		log.Printf("Unknown command: %s", arg)
 	}
 }

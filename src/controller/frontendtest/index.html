@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Chart</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #fff;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        header {
+            background: #f8f8f8;
+            border-bottom: 1px solid #eee;
+            padding: 16px 24px;
+            position: relative;
+            z-index: 20;
+        }
+
+        header > * {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        nav {
+            display: flex;
+            gap: 20px;
+        }
+
+        nav a {
+            color: #0066cc;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        nav a:hover {
+            text-decoration: underline;
+        }
+
+        #user-info {
+            display: none;
+            align-items: center;
+            gap: 12px;
+        }
+
+        #user-email {
+            font-size: 13px;
+            color: #666;
+        }
+
+        #logout-link {
+            background: #0066cc;
+            border: none;
+            padding: 8px 12px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 14px;
+            cursor: pointer;
+            pointer-events: auto;
+            position: fixed;
+            top: 14px;
+            right: 16px;
+            z-index: 2147483647;
+            border-radius: 6px;
+        }
+
+        #logout-link:hover {
+            background: #0052a3;
+        }
+
+        .layout {
+            display: flex;
+            gap: 24px;
+        }
+
+        aside {
+            width: 200px;
+            display: none;
+        }
+
+        aside.show {
+            display: block;
+        }
+
+        .favorites-header {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: #333;
+        }
+
+        .favorites-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .favorite-item {
+            padding: 8px 12px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .favorite-item:hover {
+            background: #e0e0e0;
+        }
+
+        .favorite-item button {
+            padding: 2px 6px;
+            background: #dc2626;
+            color: white;
+            border: none;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+
+        .favorite-item button:hover {
+            background: #b91c1c;
+        }
+
+        .favorites-empty {
+            font-size: 13px;
+            color: #999;
+            font-style: italic;
+        }
+
+        footer {
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            z-index: 1000;
+        }
+
+        #exit-button {
+            padding: 8px 14px;
+            background: #dc2626;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        #exit-button:hover {
+            background: #b91c1c;
+        }
+
+        main {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .search-section {
+            margin-bottom: 24px;
+        }
+
+        form {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        label {
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #0066cc;
+            box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #0052a3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .auth-required {
+            background: #fef3c7;
+            border: 1px solid #fcd34d;
+            color: #92400e;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        #status {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 16px;
+            min-height: 20px;
+        }
+
+        #graph {
+            width: 100%;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            background: #fafafa;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <nav id="auth-nav">
+                <a href="#" id="login-link">login</a>
+                <a href="#" id="signup-link">signup</a>
+            </nav>
+            <div id="user-info">
+                <span id="user-email"></span>
+                <button type="button" id="logout-link" onclick="localStorage.removeItem('accessToken');localStorage.removeItem('userEmail');localStorage.removeItem('userId');sessionStorage.removeItem('accessToken');sessionStorage.removeItem('userEmail');sessionStorage.removeItem('userId');window.location.replace(window.location.pathname);return false;">logout</button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="layout">
+            <aside id="favorites-panel">
+                <div class="favorites-header">Your Favorites</div>
+                <div class="favorites-list" id="favorites-list">
+                    <div class="favorites-empty">No favorites yet</div>
+                </div>
+            </aside>
+
+            <div style="flex: 1;">
+                <div id="auth-message" class="auth-required" style="display: none;">
+                    Please <a href="#" id="login-prompt-link">log in</a> to access the watchlist.
+                </div>
+
+                <div class="search-section">
+                    <form id="stock-form">
+                        <div>
+                            <label for="symbol">Stock symbol</label><br />
+                            <input id="symbol" name="symbol" type="text" placeholder="symbol..." autocomplete="off" />
+                        </div>
+                        <button type="submit">Load</button>
+                        <button type="button" id="favorite-button" style="background: #fbbf24; display: none;">★ Add to Favorites</button>
+                    </form>
+                </div>
+
+                <div id="status">Enter a symbol and press Load.</div>
+                <canvas id="graph" width="960" height="440"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <footer id="footer" style="display: none;">
+        <button id="exit-button">Shutdown Server</button>
+    </footer>
+
+    <script src="test.js"></script>
+</body>
+</html>

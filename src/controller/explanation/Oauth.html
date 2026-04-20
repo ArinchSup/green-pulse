@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OAuth 2.0 Flow</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --accent: #00e5ff;
+    --green: #00ff9d;
+    --orange: #ff6b35;
+    --purple: #a855f7;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --google: #4285f4;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .header {
+    text-align: center;
+    padding: 48px 24px 32px;
+    position: relative;
+  }
+
+  .header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 600px; height: 200px;
+    background: radial-gradient(ellipse, rgba(0,229,255,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  h1 {
+    font-size: clamp(28px, 5vw, 48px);
+    font-weight: 800;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* ACTORS ROW */
+  .actors {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0 40px;
+    max-width: 1100px;
+    margin: 0 auto 0;
+    position: relative;
+  }
+
+  .actor {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 180px;
+    position: relative;
+    z-index: 2;
+  }
+
+  .actor-icon {
+    width: 72px; height: 72px;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px;
+    position: relative;
+    margin-bottom: 10px;
+    border: 1.5px solid;
+  }
+
+  .actor-icon.user { background: rgba(0,229,255,0.08); border-color: var(--accent); box-shadow: 0 0 24px rgba(0,229,255,0.15); }
+  .actor-icon.frontend { background: rgba(168,85,247,0.08); border-color: var(--purple); box-shadow: 0 0 24px rgba(168,85,247,0.15); }
+  .actor-icon.backend { background: rgba(0,255,157,0.08); border-color: var(--green); box-shadow: 0 0 24px rgba(0,255,157,0.15); }
+  .actor-icon.google { background: rgba(66,133,244,0.08); border-color: var(--google); box-shadow: 0 0 24px rgba(66,133,244,0.15); }
+
+  .actor-name {
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .actor-desc {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  /* LIFELINES */
+  .lifelines-container {
+    position: relative;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+
+  .lifelines {
+    display: flex;
+    justify-content: space-between;
+    position: absolute;
+    top: 0; left: 40px; right: 40px;
+    bottom: 0;
+    pointer-events: none;
+  }
+
+  .lifeline {
+    width: 1px;
+    height: 100%;
+    opacity: 0.25;
+  }
+  .lifeline.user { background: var(--accent); }
+  .lifeline.frontend { background: var(--purple); }
+  .lifeline.backend { background: var(--green); }
+  .lifeline.google { background: var(--google); }
+
+  /* STEPS */
+  .steps {
+    padding: 24px 0 48px;
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    position: relative;
+    height: 56px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .step:hover .step-line { opacity: 1; }
+  .step:hover .step-label { opacity: 1; color: var(--text); }
+
+  .step-num {
+    position: absolute;
+    left: -8px;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    z-index: 10;
+    transition: all 0.2s;
+  }
+
+  .step:hover .step-num {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+  }
+
+  /* Arrow line */
+  .step-line {
+    position: absolute;
+    height: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0.5;
+    transition: opacity 0.2s;
+    z-index: 5;
+  }
+
+  .step-line::after {
+    content: '';
+    position: absolute;
+    right: -1px; top: -5px;
+    border: 6px solid transparent;
+  }
+
+  /* dashed = response back */
+  .step-line.dashed {
+    background: repeating-linear-gradient(90deg, currentColor 0, currentColor 6px, transparent 6px, transparent 12px) !important;
+  }
+  .step-line.dashed::after { display: none; }
+  .step-line.dashed .arrow-head { display: block; }
+
+  .arrow-head {
+    position: absolute;
+    right: -1px; top: -5px;
+    width: 0; height: 0;
+    display: none;
+  }
+  .arrow-head.show { display: block; }
+
+  /* Step label */
+  .step-label {
+    position: absolute;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    opacity: 0.7;
+    transition: all 0.2s;
+    z-index: 6;
+    top: 50%;
+    transform: translateY(-14px);
+    pointer-events: none;
+  }
+
+  .step-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+
+  /* Detail panel */
+  .detail-panel {
+    max-width: 1100px;
+    margin: 0 auto 40px;
+    padding: 0 40px;
+  }
+
+  .detail-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: none;
+    animation: fadeIn 0.25s ease;
+  }
+  .detail-card.active { display: block; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .detail-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  .detail-body {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.8;
+  }
+
+  .code-block {
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 10px;
+    font-size: 11.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+
+  .k { color: var(--purple); }
+  .v { color: var(--green); }
+  .s { color: var(--accent); }
+  .c { color: var(--muted); }
+
+  /* hint */
+  .hint {
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 12px;
+    letter-spacing: 1px;
+  }
+
+  /* legend */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding: 0 24px 32px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>OAuth 2.0 Flow</h1>
+  <p class="subtitle">Authorization Code Grant · Click any step for details</p>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div> User/Browser</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div> Frontend</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Backend</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--google)"></div> Google</div>
+</div>
+
+<!-- ACTORS -->
+<div class="actors" id="actors">
+  <div class="actor">
+    <div class="actor-icon user">👤</div>
+    <div class="actor-name" style="color:var(--accent)">User</div>
+    <div class="actor-desc">Browser<br/>/ Client</div>
+  </div>
+  <div class="actor">
+    <div class="actor-icon frontend">⚛️</div>
+    <div class="actor-name" style="color:var(--purple)">Frontend</div>
+    <div class="actor-desc">React / Next<br/>SPA</div>
+  </div>
+  <div class="actor">
+    <div class="actor-icon backend">🖥️</div>
+    <div class="actor-name" style="color:var(--green)">Backend</div>
+    <div class="actor-desc">Node / API<br/>Server</div>
+  </div>
+  <div class="actor">
+    <div class="actor-icon google">G</div>
+    <div class="actor-name" style="color:var(--google)">Google</div>
+    <div class="actor-desc">Auth Server<br/>+ Resource</div>
+  </div>
+</div>
+
+<!-- DIAGRAM -->
+<div class="lifelines-container" id="diagram">
+  <div class="lifelines">
+    <div class="lifeline user"></div>
+    <div class="lifeline frontend"></div>
+    <div class="lifeline backend"></div>
+    <div class="lifeline google"></div>
+  </div>
+  <div class="steps" id="steps"></div>
+</div>
+
+<div class="hint">↑ click a step to see details</div>
+<div class="detail-panel"><div class="detail-card" id="detail-card"></div></div>
+
+<script>
+// 4 columns: user=0, frontend=1, backend=2, google=3
+// from/to = column index (0-3)
+// dashed = return arrow
+
+const steps = [
+  {
+    from: 0, to: 1, dashed: false,
+    label: '① Click "Login with Google"',
+    tag: null,
+    color: 'var(--accent)',
+    title: '① User clicks "Login with Google"',
+    body: 'User clicks the button on your frontend. No secrets are involved yet.',
+    code: `// Frontend button
+<button onClick={handleGoogleLogin}>
+  Login with Google
+</button>`
+  },
+  {
+    from: 1, to: 2, dashed: false,
+    label: '② Request auth URL',
+    tag: 'HTTPS',
+    color: 'var(--purple)',
+    title: '② Frontend → Backend: Request the Google Auth URL',
+    body: 'Frontend calls your backend to get the Google authorization URL. The backend generates a random state value (CSRF protection) and stores it in the session.',
+    code: `// Backend generates URL
+const state = crypto.randomBytes(16).toString('hex');
+session.oauthState = state;
+
+const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+url.searchParams.set('client_id',     CLIENT_ID);
+url.searchParams.set('redirect_uri',  'https://yourapp.com/callback');
+url.searchParams.set('response_type', 'code');
+url.searchParams.set('scope',         'openid email profile');
+url.searchParams.set('state',         state);`
+  },
+  {
+    from: 2, to: 1, dashed: true,
+    label: '③ Return auth URL',
+    tag: null,
+    color: 'var(--green)',
+    title: '③ Backend → Frontend: Returns the auth URL',
+    body: 'Backend responds with the full Google OAuth URL. The state parameter is embedded in the URL for CSRF protection.',
+    code: `// Response from backend
+{
+  "authUrl": "https://accounts.google.com/o/oauth2/v2/auth
+             ?client_id=...
+             &redirect_uri=https://yourapp.com/callback
+             &response_type=code
+             &scope=openid+email+profile
+             &state=abc123xyz"
+}`
+  },
+  {
+    from: 1, to: 3, dashed: false,
+    label: '④ Redirect browser → Google',
+    tag: 'REDIRECT',
+    color: 'var(--purple)',
+    title: '④ Frontend redirects the browser to Google',
+    body: 'Frontend does window.location.href = authUrl. The browser now leaves your app and goes fully to Google\'s login page. Your app has zero control here.',
+    code: `// Frontend redirect
+window.location.href = authUrl;
+
+// --- User logs in on Google's page ---
+// Google shows: "YourApp wants access to your email"
+// User clicks Allow`
+  },
+  {
+    from: 3, to: 1, dashed: true,
+    label: '⑤ Redirect back with ?code=',
+    tag: 'REDIRECT',
+    color: 'var(--google)',
+    title: '⑤ Google redirects back to your app with an auth code',
+    body: 'After the user approves, Google redirects to your redirect_uri with a short-lived one-time auth code and the state value. This code expires in ~10 minutes and can only be used ONCE.',
+    code: `// URL Google redirects to:
+https://yourapp.com/callback
+  ?code=4/0AX4XfWjXXXXXXXXXXXXX
+  &state=abc123xyz    // ← must match what you stored
+  &scope=email+profile+openid
+
+// ⚠️ NEVER exchange this code in the frontend
+// The code alone is useless without client_secret`
+  },
+  {
+    from: 1, to: 2, dashed: false,
+    label: '⑥ Send code to backend',
+    tag: 'POST',
+    color: 'var(--purple)',
+    title: '⑥ Frontend → Backend: Send the auth code',
+    body: 'Frontend extracts the code and state from the URL params and sends it to your backend. Your backend MUST verify the state matches the one stored in the session to prevent CSRF attacks.',
+    code: `// Frontend extracts from URL
+const params = new URLSearchParams(window.location.search);
+const code  = params.get('code');
+const state = params.get('state');
+
+// POST to your backend
+await fetch('/api/auth/callback', {
+  method: 'POST',
+  body: JSON.stringify({ code, state })
+});`
+  },
+  {
+    from: 2, to: 3, dashed: false,
+    label: '⑦ Exchange code for tokens',
+    tag: 'POST · SECRET',
+    color: 'var(--green)',
+    title: '⑦ Backend → Google: Exchange code for access/refresh tokens',
+    body: 'This is the most critical step. Your backend uses the CLIENT_SECRET (never exposed to frontend) to exchange the code for tokens. This happens server-to-server only.',
+    code: `// Backend token exchange
+const response = await fetch('https://oauth2.googleapis.com/token', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({
+    code,
+    client_id:     process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,  // 🔐 SECRET
+    redirect_uri:  'https://yourapp.com/callback',
+    grant_type:    'authorization_code'
+  })
+});`
+  },
+  {
+    from: 3, to: 2, dashed: true,
+    label: '⑧ Return access_token + id_token',
+    tag: 'JWT',
+    color: 'var(--google)',
+    title: '⑧ Google → Backend: Returns tokens',
+    body: 'Google returns 3 tokens. Store the refresh_token securely in your DB — never send it to the frontend.',
+    code: `// Google's response
+{
+  "access_token":  "ya29.XXXXX",    // call Google APIs (1hr TTL)
+  "id_token":      "eyJhbGci...",   // JWT with user info
+  "refresh_token": "1//0XXXXX",     // 🔐 long-lived, store in DB
+  "expires_in":    3599,
+  "token_type":    "Bearer",
+  "scope":         "openid email profile"
+}
+
+// Decode id_token to get user info
+const { sub, email, name, picture } = jwt.decode(id_token);`
+  },
+  {
+    from: 2, to: 2, dashed: false,
+    label: '⑨ Create/find user, issue session JWT',
+    tag: 'DB',
+    color: 'var(--green)',
+    title: '⑨ Backend: Create or find user, issue your own JWT',
+    body: 'Backend finds or creates the user in your DB using the Google sub (unique stable ID). Then issues YOUR OWN JWT session token — never pass Google\'s access_token to frontend.',
+    code: `// Backend logic
+let user = await db.users.findOne({ googleId: sub });
+if (!user) {
+  user = await db.users.create({ googleId: sub, email, name, picture });
+}
+
+// Store Google refresh_token encrypted in DB
+await db.users.update({ id: user.id }, {
+  googleRefreshToken: encrypt(refresh_token)
+});
+
+// Issue YOUR session token
+const sessionJwt = jwt.sign(
+  { userId: user.id, email },
+  process.env.JWT_SECRET,
+  { expiresIn: '7d' }
+);`
+  },
+  {
+    from: 2, to: 1, dashed: true,
+    label: '⑩ Return your session JWT',
+    tag: 'HttpOnly Cookie',
+    color: 'var(--green)',
+    title: '⑩ Backend → Frontend: Send your session JWT',
+    body: 'Return your JWT as an HttpOnly cookie (NOT in response body / localStorage). HttpOnly prevents XSS from stealing the token.',
+    code: `// Backend sets cookie
+res.cookie('session', sessionJwt, {
+  httpOnly: true,   // JS cannot read it (XSS protection)
+  secure:   true,   // HTTPS only
+  sameSite: 'lax',  // CSRF protection
+  maxAge:   7 * 24 * 60 * 60 * 1000
+});
+
+res.json({ success: true, user: { name, email, picture } });`
+  },
+  {
+    from: 1, to: 0, dashed: true,
+    label: '⑪ User is logged in ✓',
+    tag: null,
+    color: 'var(--accent)',
+    title: '⑪ Done — User is authenticated',
+    body: 'Frontend receives success, stores only non-sensitive user info (name, picture) in state. All subsequent API calls automatically include the HttpOnly cookie.',
+    code: `// Frontend — subsequent authenticated requests
+const res = await fetch('/api/me', {
+  credentials: 'include'  // sends HttpOnly cookie automatically
+});
+
+// Backend verifies on each request
+app.use((req, res, next) => {
+  const token = req.cookies.session;
+  req.user = jwt.verify(token, process.env.JWT_SECRET);
+  next();
+});`
+  }
+];
+
+// ---- Render ----
+const container = document.getElementById('steps');
+const actors = document.getElementById('actors');
+const actorsList = actors.querySelectorAll('.actor');
+
+function getActorCenterX(colIdx) {
+  const rect = actorsList[colIdx].getBoundingClientRect();
+  const diagramRect = document.getElementById('diagram').getBoundingClientRect();
+  return rect.left + rect.width / 2 - diagramRect.left;
+}
+
+let activeStep = null;
+
+function renderSteps() {
+  container.innerHTML = '';
+  steps.forEach((step, i) => {
+    const div = document.createElement('div');
+    div.className = 'step';
+
+    const fromX = getActorCenterX(step.from);
+    const toX = getActorCenterX(step.to);
+    const isSelf = step.from === step.to;
+
+    // Num badge
+    const num = document.createElement('div');
+    num.className = 'step-num';
+    num.textContent = i + 1;
+    num.style.left = Math.min(fromX, toX) - 28 + 'px';
+    div.appendChild(num);
+
+    if (!isSelf) {
+      const goRight = toX > fromX;
+      const left = Math.min(fromX, toX);
+      const width = Math.abs(toX - fromX);
+
+      // Line
+      const line = document.createElement('div');
+      line.className = 'step-line' + (step.dashed ? ' dashed' : '');
+      line.style.left = left + 'px';
+      line.style.width = width + 'px';
+      line.style.color = step.color;
+      if (!step.dashed) line.style.background = step.color;
+
+      // Arrow head
+      const arrow = document.createElement('div');
+      arrow.className = 'arrow-head show';
+      arrow.style.borderLeftColor = step.color;
+      if (!goRight) {
+        arrow.style.right = 'auto';
+        arrow.style.left = '-1px';
+        arrow.style.borderLeftColor = 'transparent';
+        arrow.style.borderRightColor = step.color;
+      }
+      line.appendChild(arrow);
+      div.appendChild(line);
+
+      // For dashed, add separate arrowhead
+      if (step.dashed) {
+        const darrow = document.createElement('div');
+        darrow.style.cssText = `
+          position:absolute; top:50%; transform:translateY(-50%);
+          width:0; height:0;
+          border-top:5px solid transparent;
+          border-bottom:5px solid transparent;
+          z-index:6;
+        `;
+        if (goRight) {
+          darrow.style.right = left + 'px';
+          darrow.style.left = (left + width - 1) + 'px';
+          darrow.style.borderLeft = `8px solid ${step.color}`;
+        } else {
+          darrow.style.left = left + 'px';
+          darrow.style.borderRight = `8px solid ${step.color}`;
+        }
+        div.appendChild(darrow);
+      }
+
+      // Label
+      const label = document.createElement('div');
+      label.className = 'step-label';
+      label.style.left = (left + width / 2) + 'px';
+      label.style.transform = 'translateX(-50%) translateY(-14px)';
+      label.innerHTML = step.label + (step.tag ? ` <span class="step-tag" style="background:${step.color}22;color:${step.color};border:1px solid ${step.color}44">${step.tag}</span>` : '');
+      div.appendChild(label);
+
+    } else {
+      // self-loop (step 9)
+      const x = fromX;
+      const loopW = 60;
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.style.cssText = `position:absolute;left:${x - 10}px;top:10px;width:${loopW+20}px;height:36px;overflow:visible;`;
+      svg.innerHTML = `<path d="M10,13 C10,3 ${loopW+10},3 ${loopW+10},13 L${loopW+10},23" fill="none" stroke="${step.color}" stroke-width="2" stroke-dasharray="5,4" opacity="0.7"/>
+        <polygon points="${loopW+6},20 ${loopW+14},20 ${loopW+10},28" fill="${step.color}" opacity="0.7"/>`;
+      div.appendChild(svg);
+
+      const label = document.createElement('div');
+      label.className = 'step-label';
+      label.style.left = (x + loopW/2 + 20) + 'px';
+      label.style.transform = 'translateX(-50%) translateY(-14px)';
+      label.innerHTML = step.label + (step.tag ? ` <span class="step-tag" style="background:${step.color}22;color:${step.color}">${step.tag}</span>` : '');
+      div.appendChild(label);
+    }
+
+    div.addEventListener('click', () => showDetail(i));
+    container.appendChild(div);
+  });
+}
+
+function showDetail(idx) {
+  const step = steps[idx];
+  const card = document.getElementById('detail-card');
+  if (activeStep === idx) {
+    card.classList.remove('active');
+    activeStep = null;
+    return;
+  }
+  activeStep = idx;
+  card.className = 'detail-card active';
+  card.innerHTML = `
+    <div class="detail-title" style="color:${step.color}">
+      <span style="font-size:18px">${['👤','⚛️','🖥️','G'][[step.from]]}</span>
+      ${step.title}
+    </div>
+    <div class="detail-body">${step.body}</div>
+    <pre class="code-block">${step.code.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+  `;
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Render after layout
+window.addEventListener('load', () => {
+  setTimeout(renderSteps, 100);
+});
+window.addEventListener('resize', renderSteps);
+</script>
+</body>
+</html>
