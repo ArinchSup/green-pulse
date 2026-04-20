@@ -1,7 +1,0 @@
-finnhub-python
-requests
-chromadb
-yfinance
-dotenv
-langchain
-langchain-ollama
