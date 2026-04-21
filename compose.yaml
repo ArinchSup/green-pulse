@@ -18,7 +18,7 @@ services:
     restart: unless-stopped
   ai-service:
     build:
-      context: /.src
+      context: ./src
       dockerfile: aiDockerfile
     expose: 
       - "8001"
@@ -29,6 +29,21 @@ services:
     depends_on:
       - ollama
       - chromadb
+    restart: unless-stopped
+  
+  backend:
+    build:
+      context: ./src/controller
+      dockerfile: Dockerfile
+    expose:
+      - "8080"
+    environment:
+      - DB_PATH=${DB_PATH}
+      - DATA_PATH=${DATA_PATH}
+    volumes:
+      - ./src/databse:/data
+    depends_on:
+      - ai-service
     restart: unless-stopped
 volumes:
   chroma-data:
