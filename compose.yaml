@@ -14,7 +14,7 @@ services:
       - "11434"
     volumes:
       - ollama-models:/root/.ollama
-      - ollaa-adapters:/app/model_adapter
+      - ollama-adapters:/app/model_adapter
     restart: unless-stopped
   ai-service:
     build:
@@ -24,8 +24,8 @@ services:
       - "8001"
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - CHROMA_URL=http://chromadb:8001
-      - FINNHUB_AP_KEY=${FINNHUB_AP_KEY}
+      - CHROMA_URL=http://chromadb:8000
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY}
     depends_on:
       - ollama
       - chromadb
@@ -38,11 +38,32 @@ services:
     expose:
       - "8080"
     environment:
-      - DB_PATH=${DB_PATH}
-      - DATA_PATH=${DATA_PATH}
-    volumes:
-      - ./src/databse:/data
+      - supaDBpass=${SUPADBPASS}
+      - database=${DATABASE}
+      - supaDBhost=${SUPADBHOST}
+      - supaDBport=${SUPADBPORT}
     depends_on:
+      - ai-service
+    restart: unless-stopped
+  frontend:
+    build:
+      context: ./src/web-ui
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+  
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
       - ai-service
     restart: unless-stopped
 volumes:
