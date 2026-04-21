@@ -48,6 +48,7 @@ jobs:
             "echo supaDBhost=${{ secrets.SUPADBHOST }} >> /home/ubuntu/green-pulse/.env",
             "echo supaDBport=${{ secrets.SUPADBPORT }} >> /home/ubuntu/green-pulse/.env",
             "cd /home/ubuntu/green-pulse && sudo docker compose up --build -d",
-            "sudo docker image prune -f"
+            "cd /home/ubuntu/green-pulse && sudo -u ubuntu docker compose up --build -d",
+            "sudo -u ubuntu docker image prune -f"
             ]' \
             --region ap-southeast-1
