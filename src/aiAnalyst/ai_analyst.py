@@ -84,7 +84,7 @@ def analyze_overall_sentiment(ticker, stock_info, all_news_list, horizon="Mid-te
     target_model = model_map.get(horizon, "stock-mid")
 
     # Construct Model object with langchain
-    llm = ChatOllama(model=target_model, base_url="http://localhost:11434", temperature=0)
+    llm = ChatOllama(model=target_model, base_url=OLLAMA_BASE_URL, temperature=0)
 
     # Prepare news text for the prompt
     if not all_news_list:
