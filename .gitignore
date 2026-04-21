@@ -1,2 +1,3 @@
 tests/cloudDBtest/myenv.env
 src/controller/myEnv.env
+.env

@@ -14,7 +14,21 @@ services:
       - "11434"
     volumes:
       - ollama-models:/root/.ollama
-      - ollaa-adapters:/adapters
+      - ollaa-adapters:/app/model_adapter
+    restart: unless-stopped
+  ai-service:
+    build:
+      context: /.src
+      dockerfile: aiDockerfile
+    expose: 
+      - "8001"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - CHROMA_URL=http://chromadb:8001
+      - FINNHUB_AP_KEY=${FINNHUB_AP_KEY}
+    depends_on:
+      - ollama
+      - chromadb
     restart: unless-stopped
 volumes:
   chroma-data:
