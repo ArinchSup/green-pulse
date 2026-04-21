@@ -42,12 +42,12 @@ jobs:
             --document-name "AWS-RunShellScript"  \
             --parameters 'commands=[
             "cd /home/ubuntu/green-pulse && git pull origin main",
-            "cd /home/ubuntu/green-pulse && echo FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }} > .env",
-            "cd /home/ubuntu/green-pulse && echo supaDBpass=${{ secrets.SUPADBPASS }} >> .env",
-            "cd /home/ubuntu/green-pulse && echo database=${{ secrets.DATABASE }} >> .env",
-            "cd /home/ubuntu/green-pulse && echo supaDBhost=${{ secrets.SUPADBHOST }} >> .env",
-            "cd /home/ubuntu/green-pulse && echo supaDBport=${{ secrets.SUPADBPORT }} >> .env",
-            "cd /home/ubuntu/green-pulse && docker compose up --build -d",
-            "docker image prune -f"
+            "echo FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }} > /home/ubuntu/green-pulse/.env",
+            "echo supaDBpass=${{ secrets.SUPADBPASS }} >> /home/ubuntu/green-pulse/.env",
+            "echo database=${{ secrets.DATABASE }} >> /home/ubuntu/green-pulse/.env",
+            "echo supaDBhost=${{ secrets.SUPADBHOST }} >> /home/ubuntu/green-pulse/.env",
+            "echo supaDBport=${{ secrets.SUPADBPORT }} >> /home/ubuntu/green-pulse/.env",
+            "cd /home/ubuntu/green-pulse && sudo docker compose up --build -d",
+            "sudo docker image prune -f"
             ]' \
             --region ap-southeast-1
