@@ -23,25 +23,31 @@ jobs:
     needs: build-and-test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
+
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.0
+      - name: Deploy to EC2 by configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_IP }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd ~/green-pulse
-            git pull origin main
+          role-to-assume: arn:aws:iam::465853822810:role/green-pulse-github-deploy
+          aws-region: ap-southeast-1
 
-            cat > .env << 'EOF'
-            FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }}
-            supaDBpass=${{ secrets.SUPADBPASS }}
-            database=${{ secrets.DATABASE }}
-            supaDBhost=${{ secrets.SUPADBHOST }}
-            supaDBport=${{ secrets.SUPADBPORT }}
-            EOF
-
-            docker compose up --build -d
-
-            docker image prune -f
+      - name: Deploy via AWS SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids i-0bf07aa1199a37d2b \
+            --document-name "AWS-RunShellScript"  \
+            --parameters 'commands=[
+            "cd /home/ubuntu/green-pulse && git pull origin main",
+            "cd /home/ubuntu/green-pulse && echo FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }} > .env",
+            "cd /home/ubuntu/green-pulse && echo supaDBpass=${{ secrets.SUPADBPASS }} >> .env",
+            "cd /home/ubuntu/green-pulse && echo database=${{ secrets.DATABASE }} >> .env",
+            "cd /home/ubuntu/green-pulse && echo supaDBhost=${{ secrets.SUPADBHOST }} >> .env",
+            "cd /home/ubuntu/green-pulse && echo supaDBport=${{ secrets.SUPADBPORT }} >> .env",
+            "cd /home/ubuntu/green-pulse && docker compose up --build -d",
+            "docker image prune -f"
+            ]' \
+            --region ap-southeast-1
