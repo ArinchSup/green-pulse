@@ -1,6 +1,6 @@
 module github.com/ArinchSup/green-pulse/src/controller
 
-go 1.26.1
+go 1.23.1
 
 require (
 	github.com/jackc/pgx/v5 v5.9.1
