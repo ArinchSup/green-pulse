@@ -38,10 +38,10 @@ services:
     expose:
       - "8080"
     environment:
-      - supaDBpass=${SUPADBPASS}
-      - database=${DATABASE}
-      - supaDBhost=${SUPADBHOST}
-      - supaDBport=${SUPADBPORT}
+      - SUPADBPASS=${SUPADBPASS}
+      - DATABASE=${DATABASE}
+      - SUPADBHOST=${SUPADBHOST}
+      - SUPADBPORT=${SUPADBPORT}
     depends_on:
       - ai-service
     restart: unless-stopped
