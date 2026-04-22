@@ -1,21 +1,31 @@
 #!/bin/bash
 
 ollama serve &
+OLLAMA_PID=$!
 
-echo "waiting for the ollama to run"
+echo "Waiting for Ollama to start..."
 until curl -s http://localhost:11434/api/tags > /dev/null 2>&1; do
-    sleep 2;
+    sleep 2
 done
 echo "Ollama is ready"
 
-echo "Pulling the base mode"
-ollama pull llama3:8b-instruct-q4_K_M
+# Only pull if not already downloaded
+if ! ollama list | grep -q "llama3"; then
+    echo "Pulling the base model..."
+    ollama pull llama3:8b-instruct-q4_K_M
+else
+    echo "Base model already exists, skipping..."
+fi
 
-echo "Downloading the adapters from huggingface"
-huggingface-cli download Kuntapath/stock_analyst_adapter \
-    --local-dir /app/model_adapter \
-    --local-dir-use-symlinks False
-echo "Base model is downloaded"
+# Download adapters only if they don't exist yet
+if [ ! -f /app/model_adapter/short_stock_analyst_adapter.gguf ]; then
+    echo "Downloading the adapters from huggingface"
+    hf download Kuntapath/stock_analyst_adapter \
+        --local-dir /app/model_adapter \
+        --local-dir-use-symlinks False
+else
+    echo "Adapters already exist, skipping download..."
+fi
 
 
 echo "Download the short model----------------------"
@@ -29,5 +39,5 @@ ollama create stock-long -f /app/Modelfile.long
 
 echo "Adapters are downloaded-----------------------"
 
-
-wait
+# Keep ollama running
+wait $OLLAMA_PID
