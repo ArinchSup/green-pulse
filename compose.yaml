@@ -38,10 +38,12 @@ services:
     expose:
       - "8080"
     environment:
-      - SUPADBPASS=${SUPADBPASS}
+      - SUPABASEPASS=${SUPADBPASS}
       - DATABASE=${DATABASE}
       - SUPADBHOST=${SUPADBHOST}
       - SUPADBPORT=${SUPADBPORT}
+      - ClientID=${CLIENTID}
+      - ClientSecret=${CLIENTSECRET}
     depends_on:
       - ai-service
     restart: unless-stopped
