@@ -21,8 +21,7 @@ fi
 if [ ! -f /app/model_adapter/short_stock_analyst_adapter.gguf ]; then
     echo "Downloading the adapters from huggingface"
     hf download Kuntapath/stock_analyst_adapter \
-        --local-dir /app/model_adapter \
-        --local-dir-use-symlinks False
+        --local-dir /app/model_adapter
 else
     echo "Adapters already exist, skipping download..."
 fi
