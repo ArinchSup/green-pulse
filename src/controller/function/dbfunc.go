@@ -40,9 +40,9 @@ func LoadEnv() {
 }
 
 func ConnectDB() *pgxpool.Pool {
-	GetPass := os.Getenv("supaDBpass")
+	GetPass := os.Getenv("SUPABASEPASS")
 	password := url.QueryEscape(GetPass)
-	database := os.Getenv("database")
+	database := os.Getenv("DATABASE")
 	dbURL := fmt.Sprintf("postgresql://postgres:%s@db.%s.supabase.co:5432/postgres", password, database)
 
 	dbPool, err := pgxpool.New(context.Background(), dbURL)
@@ -208,8 +208,8 @@ func FetchStockData(symbol string) (string, error) {
 		return "", errors.New("database pool is not initialized")
 	}
 
-	database := os.Getenv("database")
-	password := os.Getenv("supaDBpass")
+	database := os.Getenv("DATABASE")
+	password := os.Getenv("SUPABASEPASS")
 	if database == "" || password == "" {
 		return "", errors.New("database credentials are not configured")
 	}
