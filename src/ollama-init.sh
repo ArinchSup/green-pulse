@@ -11,8 +11,8 @@ echo "Ollama is ready"
 echo "Pulling the base mode"
 ollama pull llama3:8b-instruct-q4_K_M
 
-echo "Downloading the adapyers from huggunface"
-huggunface-cli download Kuntapath/stock_analyst_adapter \
+echo "Downloading the adapters from huggingface"
+huggingface-cli download Kuntapath/stock_analyst_adapter \
     --local-dir /app/model_adapter \
     --local-dir-use-symlinks False
 echo "Base model is downloaded"
