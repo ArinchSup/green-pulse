@@ -43,11 +43,12 @@ jobs:
             --parameters 'commands=[
             "cd /home/ubuntu/green-pulse && git pull origin main",
             "echo FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }} > /home/ubuntu/green-pulse/.env",
-            "echo SUPADBPASS=${{ secrets.SUPADBPASS }} >> /home/ubuntu/green-pulse/.env",
+            "echo SUPABASEPASS=${{ secrets.SUPADBPASS }} >> /home/ubuntu/green-pulse/.env",
             "echo DATABASE=${{ secrets.DATABASE }} >> /home/ubuntu/green-pulse/.env",
             "echo SUPADBHOST=${{ secrets.SUPADBHOST }} >> /home/ubuntu/green-pulse/.env",
             "echo SUPADBPORT=${{ secrets.SUPADBPORT }} >> /home/ubuntu/green-pulse/.env",
-            "cd /home/ubuntu/green-pulse && sudo docker compose up --build -d",
+            "echo ClientID=${{ secrets.CLIENTID }} >> /home/ubuntu/green-pulse/.env",
+            "echo ClientSecret=${{ secrets.CLIENTSECRET }} >> /home/ubuntu/green-pulse/.env",
             "cd /home/ubuntu/green-pulse && sudo -u ubuntu docker compose up --build -d",
             "sudo -u ubuntu docker image prune -f"
             ]' \
