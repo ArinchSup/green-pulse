@@ -20,8 +20,8 @@ const (
 )
 
 func InitConfig() {
-	clientID := strings.TrimSpace(os.Getenv("ClientID"))
-	clientSecret := strings.TrimSpace(os.Getenv("ClientSecret"))
+	clientID := strings.TrimSpace(os.Getenv("CLIENTID"))
+	clientSecret := strings.TrimSpace(os.Getenv("CLIENTSECRET"))
 
 	if clientID == "" {
 		log.Println("ClientID is missing in environment variables")

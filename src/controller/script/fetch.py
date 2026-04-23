@@ -2,8 +2,9 @@ import yfinance as yf
 import sys
 import psycopg2
 from psycopg2.extras import execute_values
+from urllib.parse import quote
 
-def fetch_and_push(symbol, db_url, db_password):
+def fetch_and_push(symbol, db_url, db_password, region):
     symbol = symbol.upper()
     ticker = yf.Ticker(symbol)
     hist = ticker.history(period="max")
@@ -18,7 +19,8 @@ def fetch_and_push(symbol, db_url, db_password):
         'symbol', 'Date', 'Open', 'High', 'Low', 'Close', 
         'Volume', 'Dividends', 'Stock Splits'
     ]].values.tolist()
-    conn_str = f"postgresql://postgres:{db_password}@{db_url}:5432/postgres"
+    encoded_password = quote(db_password, safe='')
+    conn_str = f"postgres://postgres.apbkobhfnmcqqzqeeqss:{encoded_password}@aws-0-{region}.pooler.supabase.com:5432/postgres"
     conn = None
     cur = None
 
@@ -46,8 +48,8 @@ def fetch_and_push(symbol, db_url, db_password):
             conn.close()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        print("Usage: fetch.py <SYMBOL> <DB_URL> <DB_PASSWORD>", file=sys.stderr)
+    if len(sys.argv) < 5:
+        print("Usage: fetch.py <SYMBOL> <DB_URL> <DB_PASSWORD> <REGION>", file=sys.stderr)
         sys.exit(1)
         
-    fetch_and_push(sys.argv[1], sys.argv[2], sys.argv[3])
+    fetch_and_push(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
