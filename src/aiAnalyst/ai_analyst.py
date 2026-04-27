@@ -1,140 +1,66 @@
-import re
-from langchain_ollama import ChatOllama
-from langchain_core.prompts import PromptTemplate
-from aiAnalyst.config import OLLAMA_BASE_URL
+import requests
+import json
+import datetime
+from aiAnalyst.config import OLLAMA_GENERATE_URL
 
-# Build Prompt with PromptTemplate
-analysis_template = """Stock: {ticker}
-Target Horizon: {horizon}
-Current Price: {current_price} USD
-52W High: {high_52w} | 52W Low: {low_52w}
-Graph Trend: {graph_trend}
-RSI: {rsi} | EMA200: {ema_status}
-News Today:
-{news_text}"""
-
-prompt_template = PromptTemplate.from_template(analysis_template)
-
-def calculate_fib_string(current_price, high, low):
-    price_swing = high - low
-    if price_swing <= 0:
-        return "N/A"
-
-    retracements = {
-        "38.2%": round(high - (price_swing * 0.382), 2),
-        "61.8%": round(high - (price_swing * 0.618), 2),
-        "78.6%": round(high - (price_swing * 0.786), 2)
-    }
-
-    closest_level = min(retracements.keys(), key=lambda k: abs(current_price - retracements[k]))
-
-    parts = []
-    for level in ["38.2%", "61.8%", "78.6%"]:
-        price = retracements[level]
-        if level == closest_level:
-            parts.append(f">>{level}: {price} USD<<")
-        else:
-            parts.append(f"{level}: {price} USD")
-            
-    return f"Buy (Fib level: {', '.join(parts)})"
-
-def parse_lora_output(raw_text, current_price, high, low):
-    data = {"trend": "neutral", "scale": 0, "reason": ""}
-    
-    trend_match = re.search(r"Overall Tr[ea]nd:\s*([A-Za-z]+)\s*scale\s*(\d+)", raw_text, re.IGNORECASE)
-    if trend_match:
-        data["trend"] = trend_match.group(1).lower()
-        data["scale"] = int(trend_match.group(2))
-
-    is_buy = re.search(r"Worth buying:\s*Buy", raw_text, re.IGNORECASE) or re.search(r"Worth buying:\s*Follow Buy", raw_text, re.IGNORECASE)
-    
-    if is_buy:
-        fib_recommendation = calculate_fib_string(current_price, high, low)
-        raw_text = re.sub(r"Worth buying:.*", f"Worth buying: {fib_recommendation}", raw_text)
-    
-    data["raw_output"] = raw_text
-    return data
-
-def build_lora_prompt(ticker, stock_info, news_items, horizon):
-    if not news_items:
-        news_text = "1. NONE"
-    else:
-        news_text = ""
-        for i, n in enumerate(news_items, 1):
-            news_text += f"{i}. {n['headline']} - {n['summary']}\n"
-    
-    ema_status = "Above" if stock_info['current_price'] > stock_info['ema_200'] else "Below"
-    
-    return f"""Stock: {ticker}
-Target Horizon: {horizon}
-Current Price: {stock_info['current_price']} USD
-52W High: {stock_info['high_52w']} | 52W Low: {stock_info['low_52w']}
-Graph Trend: {stock_info['graph_trend']}
-RSI: {stock_info['rsi']} | EMA200: {ema_status}
-News Today:
-{news_text.strip()}"""
-
-def analyze_overall_sentiment(ticker, stock_info, all_news_list, horizon="Mid-term"):
-    # Select Model Based on Horizon
-    model_map = {
-        "Short-term": "stock-short",
-        "Mid-term": "stock-mid",
-        "Long-term": "stock-long"
-    }
-    target_model = model_map.get(horizon, "stock-mid")
-
-    # Construct Model object with langchain
-    llm = ChatOllama(model=target_model, base_url=OLLAMA_BASE_URL, temperature=0)
-
-    # Prepare news text for the prompt
-    if not all_news_list:
-        news_text = "1. NONE"
-    else:
-        news_text = "\n".join([f"{i+1}. {n['headline']} - {n['summary']}" for i, n in enumerate(all_news_list)])
-
-    ema_status = "Above" if stock_info['current_price'] > stock_info.get('ema_200', 0) else "Below"
-
-    # Use LangChain Chain (Prompt | LLM): connect chain of workflow together
-    chain = prompt_template | llm
-    
-    try:
-        # Send data into Chain
-        response = chain.invoke({
-            "ticker": ticker,
-            "horizon": horizon,
-            "current_price": stock_info['current_price'],
-            "high_52w": stock_info['high_52w'],
-            "low_52w": stock_info['low_52w'],
-            "graph_trend": stock_info['graph_trend'],
-            "rsi": stock_info['rsi'],
-            "ema_status": ema_status,
-            "news_text": news_text
-        })
-        
-        raw_response = response.content 
-        
-        # Parse output data
-        return parse_lora_output(
-            raw_response, 
-            stock_info['current_price'], 
-            stock_info['high_52w'], 
-            stock_info['low_52w']
-        )
-    except Exception as e:
-        print(f"LangChain Error: {e}")
-        return None
-
-'''
-def re_rank_results(query, retrieved_docs):
-    if not retrieved_docs: return []
-    docs_text = "\n".join([f"- {d}" for d in retrieved_docs])
-    prompt = f"""You are a strict filtering assistant. User Query: "{query}"\nSearch Results:\n{docs_text}\nCRITICAL RULES: Output ONLY the relevant sentences. If none are relevant, output "NONE". Do not explain anything."""
-    
-    # ใช้ Llama3 เดิมสำหรับงานทั่วไป
-    payload = {"model": "llama3:8b-instruct-q4_K_M", "prompt": prompt, "stream": False}
+def query_ollama_text(prompt, model="stock-quant"):
+    payload = {"model": model, "prompt": prompt, "stream": False, "format": "json"}
     try:
         response = requests.post(OLLAMA_GENERATE_URL, json=payload)
-        return response.json().get("response", "")
-    except Exception:
-        return ""
-'''
+        response.raise_for_status()
+        return response.json().get("response", "{}")
+    except Exception as e:
+        print(f"Ollama API Error: {e}")
+        return "{}"
+
+def analyze_overall_sentiment(ticker, stock_info, all_news_list, horizon="Short-term"):
+    horizon_map = {
+        "Short-term": "Short-term (< 1 Week)",
+        "Mid-term": "Mid-term (1 Week - 3 Months)",
+        "Long-term": "Long-term (3 Months - 1 Year)"
+    }
+    mapped_horizon = horizon_map.get(horizon, f"{horizon} (< 1 Week)")
+
+    if not all_news_list:
+        news_text = "NONE (No significant catalysts today)"
+    else:
+        news_text = "\n".join([f"{i+1}. {n['headline']} - {n['summary']}" for i, n in enumerate(all_news_list[:3])])
+
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+    input_text = f"""Stock: {ticker} | Date: {today_str} | Horizon: {mapped_horizon}
+[ Price Action ]
+Current Price: {stock_info.get('current_price', 0)} USD
+Last 5 Days Close: {stock_info.get('last_5_days', [])}
+Support: {stock_info.get('support', 0)} | Resistance: {stock_info.get('resistance', 0)}
+Volume: {stock_info.get('volume_pct', 100)}% of 20-day avg
+
+[ Technicals ]
+RSI (14): {stock_info.get('rsi', 50)} | EMA200: {stock_info.get('ema_200', 0)}
+MACD: {stock_info.get('macd', 'Unknown')} | Graph Trend: {stock_info.get('graph_trend', 'Unknown')}
+
+[ Market Context ]
+News:
+{news_text}"""
+
+    instruction = f"Analyze {ticker} for {mapped_horizon} investment."
+    prompt = f"""You are an elite Quantitative Trading AI. 
+Below is an instruction that describes a task, paired with an input that provides market context, technical indicators, and news.
+Write a response that appropriately completes the request.
+CRITICAL RULE: You MUST output ONLY a valid JSON object. Do not include markdown blocks (like ```json), greetings, or comments.
+
+### Instruction:
+{instruction}
+
+### Input:
+{input_text}
+
+### Response:
+"""
+    
+    raw_response = query_ollama_text(prompt, model="stock-quant")
+    
+    try:
+        return json.loads(raw_response)
+    except json.JSONDecodeError:
+        print("Failed to decode JSON from AI.")
+        return {"action": "ERROR", "raw_output": raw_response}
