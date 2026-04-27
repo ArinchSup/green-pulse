@@ -127,37 +127,62 @@ def calculate_rsi(prices, period=14):
 
 def fetch_stock_profile(ticker):
     try:
-        quote = finnhub_client.quote(ticker)
-        curr_price = quote.get('c', 0.0)
-        daily_pct = quote.get('dp', 0.0)
-
         hist = yf.Ticker(ticker).history(period="1y")
         if hist.empty: raise ValueError("No historical data")
 
+        current_close = round(hist['Close'].iloc[-1], 2)
+        last_5_days = hist['Close'].tail(5).round(2).tolist()
+        
+        avg_vol_20d = hist['Volume'].tail(20).mean()
+        current_vol = hist['Volume'].iloc[-1]
+        vol_pct = round((current_vol / avg_vol_20d) * 100) if avg_vol_20d > 0 else 100
+        
+        support = round(hist['Low'].tail(30).min(), 2)
+        resistance = round(hist['High'].tail(30).max(), 2)
+        
+        ema_200 = round(hist['Close'].ewm(span=200, adjust=False).mean().iloc[-1], 2)
+        
+        # RSI
         close_prices = hist['Close'].values
         rsi_val = calculate_rsi(close_prices)
-        ema_200 = hist['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
         
-        high_52w = float(hist['High'].max())
-        low_52w = float(hist['Low'].min())
-
-        trend = determine_graph_trend(curr_price, high_52w, low_52w, daily_pct, rsi_val, ema_200)
+        # MACD
+        exp1 = hist['Close'].ewm(span=12, adjust=False).mean()
+        exp2 = hist['Close'].ewm(span=26, adjust=False).mean()
+        macd = exp1 - exp2
+        signal = macd.ewm(span=9, adjust=False).mean()
+        macd_status = "Bullish Crossover" if macd.iloc[-1] > signal.iloc[-1] else "Bearish"
+        
+        # Graph Trend
+        if current_close > ema_200 and macd_status == "Bullish Crossover":
+            trend = "Strong Uptrend"
+        elif current_close < ema_200 and macd_status == "Bearish":
+            trend = "Downtrend"
+        else:
+            trend = "Consolidation / Sideways"
 
         return {
-            "current_price": curr_price,
-            "high_52w": high_52w,
-            "low_52w": low_52w,
+            "current_price": current_close,
+            "last_5_days": last_5_days,
+            "support": support,
+            "resistance": resistance,
+            "volume_pct": vol_pct,
+            "ema_200": ema_200,
+            "macd": macd_status,
             "graph_trend": trend,
-            "rsi": round(rsi_val, 2),
-            "ema_200": round(ema_200, 2)
+            "rsi": round(rsi_val, 2)
         }
     except Exception as e:
-        # print(f"Error fetching profile: {e}")
+        print(f"Error fetching profile for {ticker}: {e}")
+        # Default return
         return {
-            "current_price": 0,
-            "high_52w": 0,
-            "low_52w": 0,
+            "current_price": 0.0,
+            "last_5_days": [],
+            "support": 0.0,
+            "resistance": 0.0,
+            "volume_pct": 100,
+            "ema_200": 0.0,
+            "macd": "Unknown",
             "graph_trend": "Unknown",
-            "rsi": 50,
-            "ema_200": 0
+            "rsi": 50.0
         }
