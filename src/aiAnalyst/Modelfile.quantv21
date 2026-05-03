@@ -2,7 +2,7 @@
 FROM llama3.1
 
 # 2. Adapter path
-ADAPTER ./model_adapter/quant_stock_adapter.gguf
+ADAPTER ./model_adapter/quant_stock_adapter_v2_1.gguf
 
 # 3. Set Parameter 
 PARAMETER temperature 0.15

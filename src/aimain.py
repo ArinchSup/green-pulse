@@ -13,9 +13,9 @@ def cleanup_pipeline(days=2):
         
 def run_pipeline(TARGET_TICKER = "IREN", TARGET_HORIZON = "Short-term"):
     db.setup_database()
-    cleanup_pipeline(days=2)
+    cleanup_pipeline(days=3)
     
-    all_news = fetcher.fetch_news(TARGET_TICKER, days_back=1)
+    all_news = fetcher.fetch_news(TARGET_TICKER, days_back=3)
     stock_info = fetcher.fetch_stock_profile(TARGET_TICKER) 
     
     if stock_info["current_price"] == 0:
@@ -40,6 +40,14 @@ def run_pipeline(TARGET_TICKER = "IREN", TARGET_HORIZON = "Short-term"):
     return result
 
 if __name__ == "__main__":
-    data = run_pipeline("HOOD", "Short-term")
-    print(f"\n[CLI Mode] Analysis for {data['ticker']}:")
+    test_ticker = input("Enter stock ticker: ")
+    test_horizon = input("Enter investment horizon (1.Short-term, 2.Mid-term, 3.Long-term): ")
+    if test_horizon == "1":
+        test_horizon = "Short-term"
+    elif test_horizon == "2":
+        test_horizon = "Mid-term"
+    elif test_horizon == "3":
+        test_horizon = "Long-term"
+    data = run_pipeline(test_ticker, test_horizon)
+    print(f"\n[CLI Mode] Analysis for {data['ticker']} ({data['horizon']}):")
     print(data['ai_analysis'])

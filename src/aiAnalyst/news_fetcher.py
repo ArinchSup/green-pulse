@@ -1,6 +1,7 @@
 import finnhub
 import datetime
 import numpy as np
+import pandas as pd
 import yfinance as yf
 from difflib import SequenceMatcher
 from aiAnalyst.config import FINNHUB_API_KEY, EXCLUDE_KEYWORDS
@@ -12,13 +13,11 @@ def is_relevant_news(headline, summary):
     full_text = (headline + " " + safe_summary).lower()
     return not any(keyword in full_text for keyword in EXCLUDE_KEYWORDS)
 
-def get_similarity(a, b): # calculate similarity between two strings result 0-1 (0 = completely different, 1 = identical)
+def get_similarity(a, b): 
     return SequenceMatcher(None, a, b).ratio()
 
 def deduplicate_news(news_list, threshold=0.7):
-    if not news_list:
-        return []
-
+    if not news_list: return []
     unique_news = []
     for news in news_list:
         is_duplicate = False
@@ -27,13 +26,11 @@ def deduplicate_news(news_list, threshold=0.7):
             if similarity > threshold:
                 is_duplicate = True
                 break
-        
         if not is_duplicate:
             unique_news.append(news)
-            
     return unique_news
 
-def fetch_news(ticker, days_back=1):
+def fetch_news(ticker, days_back=3): 
     end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=days_back)
     try:
@@ -49,72 +46,54 @@ def fetch_news(ticker, days_back=1):
                     "headline": headline, "summary": summary,
                     "related_tags": item.get('related', ''), "url": item['url']
                 })
-                
-        # print(f"Total fetched: {len(clean_news)}")
-        clean_news = deduplicate_news(clean_news, threshold=0.7)
-        # print(f"After deduplication: {len(clean_news)}")
-        
-        return clean_news
+        return deduplicate_news(clean_news, threshold=0.7)
     except Exception as e:
-        # print(f"Error fetching news: {e}")
         return []
 
-def determine_graph_trend(price, high, low, dp, rsi, ema200):
-    if high == low or high <= 0:
-        return "Neutral"
+def calculate_atr(df, period=14):
+    if len(df) < period: return 0.0
+    high_low = df['High'] - df['Low']
+    high_close = np.abs(df['High'] - df['Close'].shift())
+    low_close = np.abs(df['Low'] - df['Close'].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = np.max(ranges, axis=1)
+    atr = true_range.rolling(period).mean()
+    return float(round(atr.iloc[-1], 2))
 
-    position = (price - low) / (high - low)
-    is_above_ema = price > ema200
+def get_macro_trend(target_date, ticker):
+    crypto_stocks = ["MSTR", "IREN", "WULF", "CIFR", "CORZ", "MARA", "CLSK"]
+    space_small_caps = ["ASTS", "RKLB", "BKSY", "LUNR", "RDW", "KTOS", "UMAC"]
+    nuclear_energy = ["CEG", "VST", "CCJ", "OKLO", "LEU", "UUUU"]
+    
+    if ticker in crypto_stocks: index_ticker, index_name = "BTC-USD", "Bitcoin"
+    elif ticker in space_small_caps: index_ticker, index_name = "IWM", "Russell 2000"
+    elif ticker in nuclear_energy: index_ticker, index_name = "XLU", "Utilities Sector"
+    elif ticker in ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "AMD"]: index_ticker, index_name = "QQQ", "NASDAQ"
+    else: index_ticker, index_name = "SPY", "S&P 500"
 
-    # 1. Extreme Cases
-    if rsi > 80 and dp > 3.0: return "Parabolic"
-    if rsi < 25 and dp < -4.0: return "Extreme Crash"
-
-    # 2. Ceiling/Breakout Zone
-    if position >= 0.98:
-        if dp > 2.0: return "Blue Sky Breakout"
-        elif dp < -2.0: return "Bullish Pullback"
-        else: return "Testing Ceiling"
-
-    # 3. Upper Zone: 80% - 98%
-    elif position >= 0.80:
-        if dp > 2.5: return "Strong Breakout"
-        elif dp < -2.5: return "Bullish Pullback"
-        elif rsi > 70: return "Parabolic"
-        else: return "Strong Uptrend" if is_above_ema else "Mature Uptrend"
-
-    # 4. Upper Zone: 60% - 80%
-    elif position >= 0.60:
-        if dp > 3.0: return "Sharp Momentum"
-        elif dp < -3.0: return "Bearish Pullback"
-        elif abs(dp) > 4.0: return "High Volatility"
-        else: return "Steady Uptrend"
-
-    # 5. Upper Zone: 40% - 60%
-    elif position >= 0.40:
-        if dp > 2.5: return "Bullish Recovery"
-        elif dp < -2.5: return "Bearish Pullback"
-        elif abs(dp) > 3.5: return "High Volatility"
-        else: return "Sideways Consolidation"
-
-    # 6. Upper Zone: 15% - 40%
-    elif position >= 0.15:
-        if dp > 3.0: return "Recovery"
-        elif dp < -3.5: return "Sharp Crash"
-        elif not is_above_ema: return "Bearish Channel"
-        else: return "Strong Downtrend"
-
-    # 7. Upper Zone: 5% - 15%
-    elif position >= 0.05:
-        if dp > 4.0: return "Floor Reversal"
-        elif dp < -4.0: return "Extreme Crash"
-        else: return "Strong Downtrend"
-
-    # 8. Upper Zone: < 5%
-    else:
-        if dp > 3.0: return "Floor Reversal"
-        elif dp < -3.0: return "Extreme Crash"
-        else: return "Near Floor"
+    end_fetch = target_date + datetime.timedelta(days=5)
+    start_fetch = target_date - datetime.timedelta(days=365)
+    try:
+        idx_data = yf.Ticker(index_ticker).history(start=start_fetch, end=end_fetch)
+        if idx_data.empty: return f"Neutral (No data for {index_name})"
+        if idx_data.index.tz is not None: idx_data.index = idx_data.index.tz_convert(None)
+        
+        target_dt = pd.to_datetime(target_date)
+        if target_dt.tzinfo is not None: target_dt = target_dt.tz_convert(None)
+            
+        valid_dates = idx_data.index[idx_data.index <= target_dt]
+        if len(valid_dates) == 0: return f"Neutral (No data for {index_name})"
+        
+        past_idx = idx_data.loc[:valid_dates[-1]]
+        if len(past_idx) < 20: return f"Neutral (Insufficient data for {index_name})"
+        
+        curr_p = past_idx['Close'].iloc[-1]
+        ema200_p = past_idx['Close'].ewm(span=200, adjust=False).mean().iloc[-1]
+        trend_status = "Bullish" if curr_p > ema200_p else "Bearish"
+        position = "Above" if curr_p > ema200_p else "Below"
+        return f"{trend_status} ({position} EMA200 of {index_name})"
+    except Exception as e:
+        return "Neutral (Error fetching macro)"
 
 def calculate_rsi(prices, period=14):
     if len(prices) < period: return 50
@@ -123,66 +102,68 @@ def calculate_rsi(prices, period=14):
     down = -deltas[deltas < 0].sum() / period
     if down == 0: return 100
     rs = up / down
-    return 100. - 100. / (1. + rs)
+    return float(round(100. - 100. / (1. + rs), 2))
 
 def fetch_stock_profile(ticker):
     try:
         hist = yf.Ticker(ticker).history(period="1y")
         if hist.empty: raise ValueError("No historical data")
+        
+        info = yf.Ticker(ticker).info
+        sector = info.get('sector', 'Unknown')
+        industry = info.get('industry', 'Unknown')
+        
+        pe_raw = info.get('trailingPE')
+        pe = round(pe_raw, 2) if isinstance(pe_raw, (int, float)) else "N/A"
+        fpe_raw = info.get('forwardPE')
+        fpe = round(fpe_raw, 2) if isinstance(fpe_raw, (int, float)) else "N/A"
+        target_raw = info.get('targetMeanPrice')
+        analyst_target = round(target_raw, 2) if isinstance(target_raw, (int, float)) else "N/A"
 
-        current_close = round(hist['Close'].iloc[-1], 2)
-        last_5_days = hist['Close'].tail(5).round(2).tolist()
+        current_close = float(round(hist['Close'].iloc[-1], 2))
+        last_5_days = [float(x) for x in hist['Close'].tail(5).round(2).tolist()]
         
         avg_vol_20d = hist['Volume'].tail(20).mean()
         current_vol = hist['Volume'].iloc[-1]
         vol_pct = round((current_vol / avg_vol_20d) * 100) if avg_vol_20d > 0 else 100
         
-        support = round(hist['Low'].tail(30).min(), 2)
-        resistance = round(hist['High'].tail(30).max(), 2)
+        swing_low = float(round(hist['Low'].tail(30).min(), 2))
+        swing_high = float(round(hist['High'].tail(30).max(), 2))
+        support_1 = float(round(hist['Low'].tail(10).min(), 2))
+        resistance_1 = float(round(hist['High'].tail(10).max(), 2))
         
-        ema_200 = round(hist['Close'].ewm(span=200, adjust=False).mean().iloc[-1], 2)
+        diff = swing_high - swing_low
+        fib_1618 = float(round(swing_high + (diff * 0.618), 2))
+        fib_0786 = float(round(swing_high - (diff * 0.786), 2))
+        fib_0618 = float(round(swing_high - (diff * 0.382), 2))
+        fib_0382 = float(round(swing_high - (diff * 0.618), 2))
         
-        # RSI
-        close_prices = hist['Close'].values
-        rsi_val = calculate_rsi(close_prices)
+        ema_200 = float(round(hist['Close'].ewm(span=200, adjust=False).mean().iloc[-1], 2))
+        atr_14 = float(calculate_atr(hist))
+        rsi_val = float(calculate_rsi(hist['Close'].values))
         
-        # MACD
         exp1 = hist['Close'].ewm(span=12, adjust=False).mean()
         exp2 = hist['Close'].ewm(span=26, adjust=False).mean()
         macd = exp1 - exp2
         signal = macd.ewm(span=9, adjust=False).mean()
         macd_status = "Bullish Crossover" if macd.iloc[-1] > signal.iloc[-1] else "Bearish"
         
-        # Graph Trend
-        if current_close > ema_200 and macd_status == "Bullish Crossover":
-            trend = "Strong Uptrend"
-        elif current_close < ema_200 and macd_status == "Bearish":
-            trend = "Downtrend"
-        else:
-            trend = "Consolidation / Sideways"
+        if current_close > ema_200 and macd_status == "Bullish Crossover": trend = "Strong Uptrend"
+        elif current_close < ema_200 and macd_status == "Bearish": trend = "Downtrend"
+        else: trend = "Consolidation / Sideways"
+            
+        macro_trend = get_macro_trend(datetime.date.today(), ticker)
 
         return {
-            "current_price": current_close,
-            "last_5_days": last_5_days,
-            "support": support,
-            "resistance": resistance,
-            "volume_pct": vol_pct,
-            "ema_200": ema_200,
-            "macd": macd_status,
-            "graph_trend": trend,
-            "rsi": round(rsi_val, 2)
+            "sector": sector, "industry": industry,
+            "pe": pe, "fpe": fpe, "analyst_target": analyst_target,
+            "macro_trend": macro_trend, "current_price": current_close,
+            "last_5_days": last_5_days, "atr": atr_14, "volume_pct": vol_pct,
+            "support_1": support_1, "support_2": swing_low,
+            "resistance_1": resistance_1, "resistance_2": swing_high,
+            "fib_1618": fib_1618, "fib_0786": fib_0786, "fib_0618": fib_0618, "fib_0382": fib_0382,
+            "rsi": round(rsi_val, 2), "ema_200": ema_200, "macd": macd_status, "graph_trend": trend
         }
     except Exception as e:
         print(f"Error fetching profile for {ticker}: {e}")
-        # Default return
-        return {
-            "current_price": 0.0,
-            "last_5_days": [],
-            "support": 0.0,
-            "resistance": 0.0,
-            "volume_pct": 100,
-            "ema_200": 0.0,
-            "macd": "Unknown",
-            "graph_trend": "Unknown",
-            "rsi": 50.0
-        }
+        return {"current_price": 0.0}
