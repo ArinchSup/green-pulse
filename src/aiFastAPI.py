@@ -10,10 +10,7 @@ class StockRequest(BaseModel):
 
 @app.post("/analyze")
 async def analyze_stock(req: StockRequest):
-    # เรียกใช้ฟังก์ชันหลักตัวเดียวกับที่ใช้ใน Terminal
     report = aimain.run_pipeline(req.ticker, req.horizon)
-    
-    # FastAPI จะแปลง dict เป็น JSON ให้ frontend อัตโนมัติ
     return report
 
 # For running: 
