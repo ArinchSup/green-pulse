@@ -19,6 +19,24 @@ def setup_database():
             ai_reason TEXT
         )
     ''')
+    
+    # ai_predictions records for impovement in the future
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ai_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT,
+            analysis_date DATETIME,
+            target_date DATETIME,
+            horizon TEXT,
+            action TEXT,
+            confidence_score INTEGER,
+            current_price REAL,
+            entry_price REAL,
+            target_price REAL,
+            stop_loss REAL,
+            status TEXT DEFAULT 'pending' -- สถานะ: pending, hit_target, hit_stoploss, expired
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -78,3 +96,42 @@ def delete_old_news_from_db(news_ids):
     conn.commit()
     conn.close()
     print(f"Successfully deleted {len(news_ids)} old records from SQLite.")
+    
+def save_prediction(ticker, horizon, current_price, ai_analysis):
+    if not ai_analysis or ai_analysis.get("action") == "ERROR":
+        return
+
+    def parse_price(val):
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    action = ai_analysis.get("action")
+    confidence = ai_analysis.get("confidence_score", 0)
+    entry_price = parse_price(ai_analysis.get("recommended_entry_price"))
+    target_price = parse_price(ai_analysis.get("target_price"))
+    stop_loss = parse_price(ai_analysis.get("stop_loss"))
+
+    now = datetime.datetime.now()
+    if "Short-term" in horizon:
+        target_date = now + datetime.timedelta(days=7)
+    elif "Mid-term" in horizon:
+        target_date = now + datetime.timedelta(days=90)
+    else: 
+        target_date = now + datetime.timedelta(days=365)
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO ai_predictions 
+        (ticker, analysis_date, target_date, horizon, action, confidence_score, current_price, entry_price, target_price, stop_loss)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        ticker, 
+        now.strftime("%Y-%m-%d %H:%M:%S"), 
+        target_date.strftime("%Y-%m-%d %H:%M:%S"), 
+        horizon, action, confidence, current_price, entry_price, target_price, stop_loss
+    ))
+    conn.commit()
+    conn.close()

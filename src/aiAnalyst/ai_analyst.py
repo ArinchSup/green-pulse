@@ -80,21 +80,40 @@ CRITICAL RULE: You MUST output ONLY a valid JSON object. Do not include markdown
     
     raw_response = query_ollama_text(prompt, model=OLLAMA_MODEL)
     
+    # Reality check and adjustment for target price if action is BUY
     try:
         data = json.loads(raw_response)
-        current_price = stock_info.get('current_price', 0)
+        current_price = float(stock_info.get('current_price', 0))
         
         if current_price > 0 and data.get("action") == "BUY":
-            max_multipliers = {
-                "Short-term (< 1 Week)": 1.15,
-                "Mid-term (1 Week - 3 Months)": 1.30,
-                "Long-term (3 Months - 1 Year)": 1.50
-            }
-            max_allowed = current_price * max_multipliers.get(mapped_horizon, 1.20)
             
-            target_val = data.get("target_price")
-            if isinstance(target_val, (int, float)) and target_val > max_allowed:
-                data["target_price"] = round(max_allowed, 2)
+            # Conservative Caps
+            max_multipliers = {
+                "Short-term (< 1 Week)": 1.10,        
+                "Mid-term (1 Week - 3 Months)": 1.25,
+                "Long-term (3 Months - 1 Year)": 1.35 
+            }
+            max_pct_allowed = current_price * max_multipliers.get(mapped_horizon, 1.35)
+            
+            try:
+                swing_high = float(stock_info.get('resistance_2', max_pct_allowed))
+            except (ValueError, TypeError):
+                swing_high = max_pct_allowed
+                
+            tech_cap = swing_high * 1.05
+            absolute_max = min(max_pct_allowed, tech_cap)
+            
+            original_target = data.get("target_price")
+            
+            if isinstance(original_target, (int, float)):       
+                if original_target > absolute_max:
+                    print(f"  OVERRIDE: Capping target to {round(absolute_max, 2)}!")
+                    data["target_price"] = round(absolute_max, 2)
+                    
+                    if "analysis" in data and "rationale" in data["analysis"]:
+                        data["analysis"]["rationale"] += f" [System Guard: Target price capped from {original_target} to a realistic bound of {round(absolute_max, 2)}.]"
+                else:
+                    print("  AI Target is within safe limits.")
 
         return data
         

@@ -10,10 +10,11 @@ if isLocal == "true":
 else:
     OLLAMA_BASE_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 OLLAMA_GENERATE_URL = f"{OLLAMA_BASE_URL}/api/generate"
-OLLAMA_MODEL = "stock-quant-v2-1"
+OLLAMA_MODEL = "stock-quant-v2-2"
 EXCLUDE_KEYWORDS = ["etf", "etfs", "mutual fund", "index fund", "model portfolio", "magnificent seven"]
 EMBEDDING_MODEL = "nomic-embed-text"
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "stock_news_vectors"
+
 # Lower is more strict
-DISTANCE_THRESHOLD = 0.42
+DISTANCE_THRESHOLD = 0.4

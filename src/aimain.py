@@ -29,6 +29,10 @@ def run_pipeline(TARGET_TICKER = "IREN", TARGET_HORIZON = "Short-term"):
         
     overall = ai.analyze_overall_sentiment(TARGET_TICKER, stock_info, all_news, horizon=TARGET_HORIZON)
     
+    # Save results
+    if overall and overall.get("action") != "ERROR":
+        db.save_prediction(TARGET_TICKER, TARGET_HORIZON, stock_info.get("current_price", 0), overall)
+    
     result = {
         "ticker": TARGET_TICKER,
         "horizon": TARGET_HORIZON,
@@ -40,14 +44,19 @@ def run_pipeline(TARGET_TICKER = "IREN", TARGET_HORIZON = "Short-term"):
     return result
 
 if __name__ == "__main__":
-    test_ticker = input("Enter stock ticker: ")
-    test_horizon = input("Enter investment horizon (1.Short-term, 2.Mid-term, 3.Long-term): ")
-    if test_horizon == "1":
-        test_horizon = "Short-term"
-    elif test_horizon == "2":
-        test_horizon = "Mid-term"
-    elif test_horizon == "3":
-        test_horizon = "Long-term"
-    data = run_pipeline(test_ticker, test_horizon)
-    print(f"\n[CLI Mode] Analysis for {data['ticker']} ({data['horizon']}):")
-    print(data['ai_analysis'])
+    while True:
+        test_ticker = input("\nEnter stock ticker (Enter q to quit): ")
+        if test_ticker == "q":
+            break
+        test_horizon = input("Enter investment horizon (1.Short-term, 2.Mid-term, 3.Long-term) (Enter q to quit): ")
+        if test_horizon == "1":
+            test_horizon = "Short-term"
+        elif test_horizon == "2":
+            test_horizon = "Mid-term"
+        elif test_horizon == "3":
+            test_horizon = "Long-term"
+        elif test_horizon == "q":
+            break
+        data = run_pipeline(test_ticker, test_horizon)
+        print(f"\n[CLI Mode] Analysis for {data['ticker']} ({data['horizon']}):")
+        print(data['ai_analysis'])
