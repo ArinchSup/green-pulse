@@ -1,94 +1,101 @@
-import './App.css'
-import { useState } from "react"
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import greenPulseLogo from './assets/greenPulseLogo.svg'
-import {Option} from './component.tsx'
-import {MARKET} from './variable.ts'
+// src/App.tsx
+import { useEffect, useState } from "react";
+import "./App.css";
+import { Sidebar } from "./Sidebar";
+import { Overview } from "./pages/Overview";
+import { Portfolio } from "./pages/Portfolio";
+import { Watchlist } from "./pages/Watchlist";
+import { Settings } from "./pages/Settings";
+import { TradeModal } from "./TradeModal";
+import {
+  MARKETS, HOLDINGS, TRANSACTIONS, NEWS, ALERTS, findMarket
+} from "./variable";
+import type { Market, RangeKey, Alert } from "./types";
 
 function App() {
-  const [activePage, setActivePage] = useState("overview")
+  const [activePage, setActivePage] = useState("overview");
+  const [selectedId, setSelectedId] = useState("sp500");
+  const [range, setRange] = useState<RangeKey>("1M");
+  const [tradeTicker, setTradeTicker] = useState<string | null>(null);
+  const [now, setNow] = useState(new Date());
+  const [watched, setWatched] = useState<Set<string>>(new Set(["sp500", "nvda", "btc", "eth"]));
+  const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
+  const [markets, setMarkets] = useState<Market[]>(MARKETS);
 
-  return(
-    <div className="rootDiv">
-      <div className="outterWrapper">
+  // Live ticking
+  useEffect(() => {
+    const t = setInterval(() => {
+      setMarkets(prev => prev.map(m => {
+        const drift = (Math.random() - 0.5) * m.base * 0.0008;
+        const newPrice = parseFloat((m.price + drift).toFixed(2));
+        const change = ((newPrice - m.base) / m.base) * 100;
+        const lastT = m.data["1D"][m.data["1D"].length - 1].t;
+        const newDay = [...m.data["1D"].slice(1), { i: m.data["1D"].length, t: lastT, value: newPrice }];
+        return { ...m, price: newPrice, change: parseFloat(change.toFixed(2)), up: change >= 0,
+                 data: { ...m.data, "1D": newDay } };
+      }));
+    }, 2200);
+    return () => clearInterval(t);
+  }, []);
 
-        {/*Side bar*/}
-        <div className="sidebar">
-          <div className="logoContainer">
-            <img src={greenPulseLogo} alt="Green Pulse Logo" className="logoImage"/>
-            Green Pulse
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const toggleWatch = (id: string) => {
+    setWatched(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
+  const select = (id: string) => { setSelectedId(id); setActivePage("overview"); };
+  const watchedMarkets = markets.filter(m => watched.has(m.id));
+  const watchlistMarkets = watched.size > 0 ? watchedMarkets : markets;
+  const tradeMarket = tradeTicker ? findMarket(tradeTicker, markets) : null;
+
+  return (
+    <div className="app">
+      <Sidebar activePage={activePage} setActivePage={setActivePage} />
+      <div className="main">
+        <div className="header">
+          <div className="crumb">
+            <span className="slash">/</span>
+            <span className="seg">{activePage}</span>
+            {activePage === "overview" && (
+              <>
+                <span className="slash"> / </span>
+                <span>{markets.find(m => m.id === selectedId)?.ticker}</span>
+              </>
+            )}
           </div>
-          <Option activePage={activePage} setActivePage={setActivePage} />
+          <div className="header-right">
+            <span className="clock">{now.toLocaleTimeString("en-US", { hour12: false })} UTC</span>
+            <span className="market-status"><span className="dot live"></span>MARKET OPEN</span>
+          </div>
         </div>
-
-        {/*Main content*/}
-        <div className="main">
-          <div className="header">
-            <div>
-              <div style={{color: "#c8e6c0", fontSize: "20px", fontWeight: "600", paddingLeft: "20px"}}>
-                /{activePage}
-              </div>
-            </div>
-            <div className="ismarket">
-              market open
-            </div>
-          </div>
-          {/* OVERVIEW */}
-          <div className="overview">
-            {/* BIG CHART */}
-            <div className="main-chart-card">
-              <div className="chart-header">
-                <div>
-                  <div className="chart-title">S&P 500 — SPX</div>
-                  <div className="chart-price">${MARKET[0].price.toLocaleString()}</div>
-                  <div className={MARKET[0].up ? "chart-change-up" : "chart-change-down"}>
-                    {MARKET[0].up ? "▲" : "▼"} {MARKET[0].change}
-                  </div>
-                </div>
-                <div className="time-buttons">
-                  {["1D","1W","1M","3M","1Y"].map(t => (
-                    <button key={t} className={`time-btn ${t === "1M" ? "active" : ""}`}>
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={MARKET[0].data}>
-                  <defs>
-                    <linearGradient id="spxGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="#00d46a" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#00d46a" stopOpacity={0}   />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="i" hide />
-                  <YAxis domain={["auto","auto"]} hide />
-                  <Tooltip
-                    contentStyle={{ background: "#162019", border: "1px solid #2a4a35", borderRadius: 4 }}
-                    labelStyle={{ display: "none" }}
-                    itemStyle={{ color: "#00d46a", fontSize: 12 }}
-                    formatter={(value) => {
-                      const numericValue = typeof value === 'number' ? value : Number(value ?? 0)
-                      return [`$${numericValue.toLocaleString()}`, ""]
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#00d46a"
-                    strokeWidth={2}
-                    fill="url(#spxGrad)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-
-          </div>
+        <div className="scroll">
+          {activePage === "overview" && (
+            <Overview markets={markets} selectedId={selectedId} onSelect={setSelectedId}
+                      range={range} setRange={setRange} news={NEWS} />
+          )}
+          {activePage === "portfolio" && (
+            <Portfolio markets={markets} holdings={HOLDINGS} transactions={TRANSACTIONS} onTrade={setTradeTicker} />
+          )}
+          {activePage === "watchlist" && (
+            <Watchlist markets={watchlistMarkets} onSelect={select} onTrade={setTradeTicker}
+                       watched={watched} toggleWatch={toggleWatch} />
+          )}
+          {activePage === "settings" && (
+            <Settings alerts={alerts} setAlerts={setAlerts} />
+          )}
         </div>
       </div>
+      {tradeMarket && <TradeModal market={tradeMarket} onClose={() => setTradeTicker(null)} />}
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

@@ -42,12 +42,28 @@ func LoadEnv() {
 func ConnectDB() *pgxpool.Pool {
 	GetPass := os.Getenv("SUPABASEPASS")
 	password := url.QueryEscape(GetPass)
-	database := os.Getenv("DATABASE")
-	dbURL := fmt.Sprintf("postgresql://postgres:%s@db.%s.supabase.co:5432/postgres", password, database)
 
-	dbPool, err := pgxpool.New(context.Background(), dbURL)
+	dbURL := fmt.Sprintf(
+		"postgresql://postgres.wrqibbqyjukbdzobmtkf:%s@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres", password)
+
+	config, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to databse: %v", err)
+		log.Fatalf("Failed to parse db config: %v", err)
+	}
+
+	// Supabase transaction pooler requires these
+	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	config.MaxConns = 10
+	config.MinConns = 1
+
+	dbPool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+
+	// Force a real connection to verify
+	if err := dbPool.Ping(context.Background()); err != nil {
+		log.Fatalf("Failed to ping database: %v", err)
 	}
 
 	fmt.Println("Successfully connected to the database")
@@ -177,14 +193,21 @@ func GetStockRecords(symbol string) ([]StockRecord, error) {
 }
 
 func TrackedSymbols() ([]string, error) {
+	print("working 2\n")
+
 	if pool == nil {
 		return nil, errors.New("database pool is not initialized")
 	}
+	print("working 3\n")
+
 
 	rows, err := pool.Query(context.Background(), "SELECT DISTINCT symbol FROM stocks ORDER BY symbol")
 	if err != nil {
+		print("error here\n")
 		return nil, err
 	}
+	print("working 4\n")
+
 	defer rows.Close()
 
 	var symbols []string
@@ -195,11 +218,11 @@ func TrackedSymbols() ([]string, error) {
 		}
 		symbols = append(symbols, symbol)
 	}
-
+	print("working 5\n")
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-
+	print("working 6\n")
 	return symbols, nil
 }
 
@@ -210,7 +233,8 @@ func FetchStockData(symbol string) (string, error) {
 
 	database := os.Getenv("DATABASE")
 	password := os.Getenv("SUPABASEPASS")
-	if database == "" || password == "" {
+	region := os.Getenv("REGION")
+	if database == "" || password == "" || region == "" {
 		return "", errors.New("database credentials are not configured")
 	}
 
@@ -221,7 +245,7 @@ func FetchStockData(symbol string) (string, error) {
 
 	scriptPath := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "script", "fetch.py"))
 
-	cmd := exec.Command("python3", scriptPath, symbol, fmt.Sprintf("db.%s.supabase.co", database), password)
+	cmd := exec.Command("python3", scriptPath, symbol, database, password, region)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 2 {
@@ -234,10 +258,12 @@ func FetchStockData(symbol string) (string, error) {
 }
 
 func RefreshAllStocks() error {
+	print("working \n")
 	symbols, err := TrackedSymbols()
 	if err != nil {
 		return err
 	}
+	print("working \n")
 
 	for _, symbol := range symbols {
 		if output, err := FetchStockData(symbol); err != nil {
