@@ -26,6 +26,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - CHROMA_URL=http://chromadb:8000
       - FINNHUB_API_KEY=${FINNHUB_API_KEY}
+      - IS_LOCAL=${IS_LOCAL}
     depends_on:
       - ollama
       - chromadb

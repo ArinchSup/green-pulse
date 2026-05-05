@@ -10,9 +10,9 @@ done
 echo "Ollama is ready"
 
 # Only pull if not already downloaded
-if ! ollama list | grep -q "llama3"; then
+if ! ollama list | grep -q "llama3.1"; then
     echo "Pulling the base model..."
-    ollama pull llama3:8b-instruct-q4_K_M
+    ollama pull llama3.1
 else
     echo "Base model already exists, skipping..."
 fi
@@ -26,15 +26,10 @@ else
     echo "Adapters already exist, skipping download..."
 fi
 
+echo "Dowload the adapter---------------------------"
 
-echo "Download the short model----------------------"
-ollama create stock-short -f /app/Modelfile.short
 
-echo "Download the mid model----------------------"
-ollama create stock-mid -f /app/Modelfile.mid
-
-echo "Download the long model----------------------"
-ollama create stock-long -f /app/Modelfile.long
+ollama create stock-quant-v2-2 -f Modelfile.quantv22
 
 echo "Adapters are downloaded-----------------------"
 

@@ -6,9 +6,9 @@ RUN apt-get update && apt-get install -y \
     && pip3 install huggingface_hub --break-system-packages \
     && rm -rf /var/lib/apt/lists/*
 
-COPY aiAnalyst/Modelfile.short /app/Modelfile.short
-COPY aiAnalyst/Modelfile.mid /app/Modelfile.mid
-COPY aiAnalyst/Modelfile.long /app/Modelfile.long
+COPY aiAnalyst/Modelfile.short /app/Modelfile.quantv22
+
+
 COPY ollama-init.sh /app/ollama-init.sh
 
 RUN chmod +x /app/ollama-init.sh
