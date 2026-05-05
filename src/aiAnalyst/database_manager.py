@@ -34,7 +34,8 @@ def setup_database():
             entry_price REAL,
             target_price REAL,
             stop_loss REAL,
-            status TEXT DEFAULT 'pending' -- สถานะ: pending, hit_target, hit_stoploss, expired
+            rationale TEXT, 
+            status TEXT DEFAULT 'pending'
         )
     ''')
     conn.commit()
@@ -102,36 +103,71 @@ def save_prediction(ticker, horizon, current_price, ai_analysis):
         return
 
     def parse_price(val):
-        try:
-            return float(val)
-        except (ValueError, TypeError):
-            return None
+        try: return float(val)
+        except (ValueError, TypeError): return None
 
     action = ai_analysis.get("action")
     confidence = ai_analysis.get("confidence_score", 0)
     entry_price = parse_price(ai_analysis.get("recommended_entry_price"))
     target_price = parse_price(ai_analysis.get("target_price"))
     stop_loss = parse_price(ai_analysis.get("stop_loss"))
+    
+    rationale = ""
+    if "analysis" in ai_analysis and "rationale" in ai_analysis["analysis"]:
+        rationale = ai_analysis["analysis"]["rationale"]
 
     now = datetime.datetime.now()
-    if "Short-term" in horizon:
-        target_date = now + datetime.timedelta(days=7)
-    elif "Mid-term" in horizon:
-        target_date = now + datetime.timedelta(days=90)
-    else: 
-        target_date = now + datetime.timedelta(days=365)
+    if "Short-term" in horizon: target_date = now + datetime.timedelta(days=7)
+    elif "Mid-term" in horizon: target_date = now + datetime.timedelta(days=90)
+    else: target_date = now + datetime.timedelta(days=365)
 
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO ai_predictions 
-        (ticker, analysis_date, target_date, horizon, action, confidence_score, current_price, entry_price, target_price, stop_loss)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (ticker, analysis_date, target_date, horizon, action, confidence_score, current_price, entry_price, target_price, stop_loss, rationale)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
-        ticker, 
-        now.strftime("%Y-%m-%d %H:%M:%S"), 
-        target_date.strftime("%Y-%m-%d %H:%M:%S"), 
-        horizon, action, confidence, current_price, entry_price, target_price, stop_loss
+        ticker, now.strftime("%Y-%m-%d %H:%M:%S"), target_date.strftime("%Y-%m-%d %H:%M:%S"), 
+        horizon, action, confidence, current_price, entry_price, target_price, stop_loss, rationale # 🌟 ใส่ rationale ลงไป
     ))
     conn.commit()
     conn.close()
+    
+def get_latest_prediction(ticker):
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        
+        horizons = ["Short-term", "Mid-term", "Long-term"]
+        quant_summaries = []
+        
+        for h in horizons:
+            cursor.execute('''
+                SELECT action, confidence_score, entry_price, target_price, stop_loss, rationale, analysis_date
+                FROM ai_predictions 
+                WHERE ticker = ? AND horizon LIKE ?
+                ORDER BY id DESC LIMIT 1
+            ''', (ticker, f"{h}%"))
+            
+            row = cursor.fetchone()
+            if row:
+                action, conf, entry, target, stop, rationale, date = row
+                
+                summary_block = (
+                    f"[{h} Analysis - {date}]\n"
+                    f"Signal: {action} with {conf}% Confidence\n"
+                    f"Price Targets -> Entry: {entry} | Target: {target} | Stop: {stop}\n"
+                    f"Quant Reasoning: {rationale}\n"
+                )
+                quant_summaries.append(summary_block)
+                
+        conn.close()
+        
+        if quant_summaries:
+            return "\n".join(quant_summaries)
+        else:
+            return "No recent quant analysis available in database."
+            
+    except Exception as e:
+        return f"Error fetching quant data: {e}"
