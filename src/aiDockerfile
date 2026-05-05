@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY aiFastAPI.py .
 COPY aimain.py .
+COPY aiCheckPrediction.py .
 COPY aiAnalyst/ ./aiAnalyst/
 
 EXPOSE 8001
