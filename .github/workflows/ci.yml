@@ -43,6 +43,7 @@ jobs:
             --parameters 'commands=[
             "cd /home/ubuntu/green-pulse && git pull origin main",
             "echo FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }} > /home/ubuntu/green-pulse/.env",
+            "echo IS_LOCAL=${{ secrets.IS_LOCAL}} > /home/ubuntu/green-pulse/.env",
             "echo GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD }} >> /home/ubuntu/green-pulse/.env",
             "echo SUPABASEPASS=${{ secrets.SUPADBPASS }} >> /home/ubuntu/green-pulse/.env",
             "echo DATABASE=${{ secrets.DATABASE }} >> /home/ubuntu/green-pulse/.env",
