@@ -18,7 +18,7 @@ else
 fi
 
 # Download adapters only if they don't exist yet
-if [ ! -f /app/model_adapter/short_stock_analyst_adapter.gguf ]; then
+if [ ! -f /app/model_adapter/quant_stock_adapter_v2_2.gguf ]; then
     echo "Downloading the adapters from huggingface"
     hf download Kuntapath/stock_analyst_adapter \
         --local-dir /app/model_adapter
@@ -26,10 +26,10 @@ else
     echo "Adapters already exist, skipping download..."
 fi
 
-echo "Dowload the adapter---------------------------"
+echo "Dowload the adapter-stock-quantV2.2--------------------------"
 
 
-ollama create stock-quant-v2-2 -f Modelfile.quantv22
+ollama create stock-quant-v2-2 -f /app/Modelfile.quantv22
 
 echo "Adapters are downloaded-----------------------"
 
