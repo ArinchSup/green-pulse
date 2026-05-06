@@ -1,18 +1,18 @@
-import yfinance as yf
 import requests
 import json
-import sqlite3
 from aiAnalyst.news_fetcher import fetch_news, fetch_stock_profile
-from aiAnalyst.database_manager import get_latest_prediction
-from aiAnalyst.config import OLLAMA_GENERATE_URL, DB_NAME
+from aiAnalyst.database_manager import get_latest_prediction 
+from aiAnalyst.config import OLLAMA_GENERATE_URL
 
-def extract_ticker(user_question):
-    extraction_prompt = f"""Extract the US stock ticker symbol from the user's question.
-Convert company names (e.g., 'Apple', 'Nvidia', 'Tesla') to correct tickers (e.g., 'AAPL', 'NVDA', 'TSLA').
-CRITICAL RULE: You must output ONLY a valid JSON object. Do not add any other text.
+def extract_tickers(user_question):
+    extraction_prompt = f"""Extract US stock ticker symbols from the user's question.
+- If multiple companies are mentioned, list all of them.
+- If an industry/sector is mentioned (e.g., 'semiconductors', 'EV', 'AI'), return the top 2-3 representative ticker symbols for that sector (e.g., NVDA, AMD, TSM for semiconductors).
+CRITICAL RULE: You must output ONLY a valid JSON object with an array key named "tickers".
 
-Example 1: {{"ticker": "AAPL"}}
-Example 2: {{"ticker": "NONE"}}
+Example 1: {{"tickers": ["MSFT", "META"]}}
+Example 2: {{"tickers": ["NVDA", "AMD", "TSM"]}}
+Example 3: {{"tickers": []}}
 
 User Question: {user_question}"""
 
@@ -20,122 +20,117 @@ User Question: {user_question}"""
         "model": "llama3.1", 
         "prompt": extraction_prompt,
         "stream": False,
-        "format": "json" 
+        "format": "json"
     }
     
     try:
         response = requests.post(OLLAMA_GENERATE_URL, json=payload)
         raw_text = response.json().get("response", "{}")
-        
-        import json
         data = json.loads(raw_text)
         
-        ticker = data.get("ticker", "NONE").strip().upper()
-        
-        import re
-        match = re.search(r'^[A-Z]+$', ticker)
-        return ticker if match else "NONE"
+        tickers = data.get("tickers", [])
+        clean_tickers = [str(t).strip().upper() for t in tickers if isinstance(t, str)]
+        return clean_tickers[:3] 
         
     except Exception as e:
-        return "NONE"
+        return []
 
+def ask_stock_bot(user_question, chat_history):
+    
+    MAX_HISTORY = 4
+    history_context = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in chat_history])
+    extraction_text = f"Context:\n{history_context}\n\nLatest Question: {user_question}"
+    
+    tickers = extract_tickers(extraction_text)
 
-def get_latest_prediction(ticker):
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
+    OLLAMA_CHAT_URL = OLLAMA_GENERATE_URL.replace("/api/generate", "/api/chat")
+
+    if not tickers:
+        general_system = "You are an expert Financial Advisor Chatbot. Answer politely."
+        messages = []
+        messages.append({"role": "system", "content": general_system}) 
+        messages.extend(chat_history) 
+        messages.append({"role": "user", "content": user_question})
         
-        horizons = ["Short-term", "Mid-term", "Long-term"]
-        quant_summaries = []
-        
-        for h in horizons:
-            cursor.execute('''
-                SELECT action, confidence_score, entry_price, target_price, stop_loss, rationale, analysis_date
-                FROM ai_predictions 
-                WHERE ticker = ? AND horizon LIKE ?
-                ORDER BY id DESC LIMIT 1
-            ''', (ticker, f"{h}%"))
+        payload = {"model": "llama3.1", "messages": messages, "stream": False}
+        try:
+            response = requests.post(OLLAMA_CHAT_URL, json=payload)
+            bot_reply = response.json().get("message", {}).get("content", "Error")
             
-            row = cursor.fetchone()
-            if row:
-                action, conf, entry, target, stop, rationale, date = row
-                
-                summary_block = (
-                    f"[{h} Analysis - {date}]\n"
-                    f"Signal: {action} with {conf}% Confidence\n"
-                    f"Price Targets -> Entry: {entry} | Target: {target} | Stop: {stop}\n"
-                    f"Quant Reasoning: {rationale}\n"
-                )
-                quant_summaries.append(summary_block)
-                
-        conn.close()
-        
-        if quant_summaries:
-            return "\n".join(quant_summaries)
-        else:
-            return "No recent quant analysis available in database."
+            chat_history.append({"role": "user", "content": user_question})
+            chat_history.append({"role": "assistant", "content": bot_reply})
             
-    except Exception as e:
-        return f"Error fetching quant data: {e}"
+            if len(chat_history) > MAX_HISTORY * 2:
+                chat_history = chat_history[-(MAX_HISTORY * 2):]
+                
+            return bot_reply, chat_history 
+            
+        except Exception as e:
+            return str(e), chat_history
+
+    print(f"🔎 AI find ticker: {', '.join(tickers)}")
     
-def ask_stock_bot(user_question):
-    ticker = extract_ticker(user_question)
-    
-    if ticker == "NONE" or not ticker:
-        general_prompt = f"""You are an expert Financial Advisor Chatbot. 
-Answer politely. If they ask about a stock, tell them to mention the stock name clearly.
-Question: {user_question}"""
-        payload = {"model": "llama3.1", "prompt": general_prompt, "stream": False}
-        res = requests.post(OLLAMA_GENERATE_URL, json=payload)
-        return res.json().get("response", "Error")
-    
-    stock_info = fetch_stock_profile(ticker)
-    recent_news = fetch_news(ticker, days_back=3)
-    
-    quant_analysis = get_latest_prediction(ticker)
-    
-    news_text = "No recent news."
-    if recent_news:
-        news_text = "\n".join([f"- {n['headline']}: {n['summary']}" for n in recent_news[:5]])
+    all_contexts = ""
+    for ticker in tickers:
+        stock_info = fetch_stock_profile(ticker)
+        recent_news = fetch_news(ticker, days_back=3)
+        quant_analysis = get_latest_prediction(ticker)
+        
+        news_text = "No recent news."
+        if recent_news:
+            news_text = "\n".join([f"- {n['headline']}: {n['summary']}" for n in recent_news[:3]])
+            
+        all_contexts += f"""
+=== FACT SHEET: {ticker} ===
+Current Price: {stock_info.get('current_price')} | P/E: {stock_info.get('pe')}
+Trend: {stock_info.get('graph_trend')} | Macro: {stock_info.get('macro_trend')}
+[ Quant System Analysis ]
+{quant_analysis}
+[ News ]
+{news_text}
+===========================
+"""
 
     system_prompt = f"""You are an expert Financial Advisor Chatbot representing an elite AI trading firm.
-Answer the user's question clearly in the language they asked (e.g., Thai or English) using ONLY the provided context. 
-If the user asks for advice or direction, you MUST incorporate the 'Our Proprietary Quant System' analysis into your answer to explain our firm's official stance on this stock.
+Answer the user's question clearly in the language they asked using ONLY the provided context.
+Compare the stocks if asked, using the Proprietary Quant System analysis as your firm's official stance.
 
-=== STOCK FACT SHEET: {ticker} ===
-[ Fundamentals & Technicals ]
-Current Price: {stock_info.get('current_price')}
-Graph Trend: {stock_info.get('graph_trend')} | Macro Trend: {stock_info.get('macro_trend')}
-P/E Ratio: {stock_info.get('pe')} | Volatility (ATR): {stock_info.get('atr')}
-Support 1: {stock_info.get('support_1')} | Resistance 1: {stock_info.get('resistance_1')}
+[ LIVE STOCK DATA ]
+{all_contexts}"""
 
-[ Our Proprietary Quant System Analysis ]
-{quant_analysis}
-
-[ Recent News ]
-{news_text}
-==================================
-
-User Question: {user_question}
-"""
+    messages = []
+    messages.append({"role": "system", "content": system_prompt}) 
+    messages.extend(chat_history)                                 
+    messages.append({"role": "user", "content": user_question})   
 
     payload = {
         "model": "llama3.1", 
-        "prompt": system_prompt,
+        "messages": messages, 
         "stream": False
     }
     
     try:
-        response = requests.post(OLLAMA_GENERATE_URL, json=payload)
-        return response.json().get("response", "Error generating response.")
+        response = requests.post(OLLAMA_CHAT_URL, json=payload)
+        bot_reply = response.json().get("message", {}).get("content", "Error generating response.")
+        
+        chat_history.append({"role": "user", "content": user_question})
+        chat_history.append({"role": "assistant", "content": bot_reply})
+        
+        if len(chat_history) > MAX_HISTORY * 2:
+            chat_history = chat_history[-(MAX_HISTORY * 2):]
+            
+        return bot_reply, chat_history
+        
     except Exception as e:
-        return str(e)
+        return str(e), chat_history
 
 if __name__ == "__main__":
+    local_history = [] 
+    
     while True:
         question = input("\n👤 You: ")
         if question.lower() in ['exit', 'quit']:
             break
             
-        answer = ask_stock_bot(question)
+        answer, local_history = ask_stock_bot(question, local_history)
         print(f"\n📈 AI Bot:\n{answer}")
