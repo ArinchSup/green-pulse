@@ -1,11 +1,18 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from rpds import List
-from sympy import Dict
+from fastapi.middleware.cors import CORSMiddleware
 import aimain  
 import ai_chatbot
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
 
 class StockRequest(BaseModel):
     ticker: str = "AAPL"  # Default value
@@ -13,7 +20,7 @@ class StockRequest(BaseModel):
     
 class ChatRequest(BaseModel):
     question: str
-    history: List[Dict[str, str]] = []
+    history: list[dict[str, str]] = []
 
 @app.post("/analyze")
 async def analyze_stock(req: StockRequest):
