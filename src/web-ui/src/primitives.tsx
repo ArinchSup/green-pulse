@@ -1,132 +1,265 @@
 // src/primitives.tsx — reusable UI primitives
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { PricePoint, Tone } from "./types";
 import { fmtPrice } from "./format";
 
-interface SparklineProps { data: PricePoint[]; up: boolean; width?: number | string; height?: number; fillOpacity?: number; }
-export const Sparkline = ({ data, up, width = 80, height = 24, fillOpacity = 0.18 }: SparklineProps) => {
-  if (!data || data.length === 0) return null;
-  const W = typeof width === "number" ? width : 100;
-  const vs = data.map(d => d.value);
-  const min = Math.min(...vs), max = Math.max(...vs);
-  const range = max - min || 1;
-  const stepX = W / (data.length - 1);
-  const pts = data.map((d, i) => [i * stepX, height - ((d.value - min) / range) * (height - 2) - 1]);
-  const path = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
-  const fill = `${path} L${W},${height} L0,${height} Z`;
-  const color = up ? "var(--green)" : "var(--red)";
-  const gid = `spk-${Math.random().toString(36).slice(2, 9)}`;
-  return (
-    <svg width={width as any} height={height} viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none" style={{ display: "block" }}>
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={fillOpacity} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <path d={fill} fill={`url(#${gid})`} />
-      <path d={path} stroke={color} strokeWidth="1.25" fill="none" />
-    </svg>
-  );
-};
+interface LineChartProps { 
+  data: PricePoint[]; 
+  up: boolean; 
+  height?: number; 
+  showGrid?: boolean; 
+  fillOpacity?: number; 
+  showVolume?: boolean;
+  fibLevels?: { label: string; value: number }[];
+  srLevels?: { label: string; value: number; color: string }[];
+  demandZone?: [number, number] | null;
+  focusLength?: number; 
+  focusStartT?: string | number;
+}
 
-interface LineChartProps { data: PricePoint[]; up: boolean; height?: number; showGrid?: boolean; fillOpacity?: number; showVolume?: boolean; }
-export const LineChart = ({ data, up, height = 280, showGrid = true, fillOpacity = 0.22, showVolume = false }: LineChartProps) => {
+export const LineChart = ({ 
+  data, up, height = 200, showGrid = true, fillOpacity = 0.2, showVolume = false,
+  fibLevels, srLevels, demandZone, focusLength, focusStartT
+}: LineChartProps) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(800);
   const [hover, setHover] = useState<{ i: number; x: number; y: number; v: number } | null>(null);
 
+  const [viewX, setViewX] = useState({ s: 0, e: 100 });
+  const [viewY, setViewY] = useState({ min: 0, max: 100 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef({ x: 0, y: 0 });
+
+  // 🌟 ตัวช่วยจำ ป้องกันกราฟเด้งกลับตอนราคา Live Update
+  const initRef = useRef<string | null>(null);
+  const prevLenRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!data || !Array.isArray(data) || data.length === 0) return;
+
+    const currentKey = `${focusStartT || data[0].t}`;
+
+    // ถ้ารหัสกราฟยังเหมือนเดิม (แปลว่าแค่ราคาอัปเดต)
+    if (initRef.current === currentKey) {
+       if (data.length > prevLenRef.current) {
+          // ถ้ามีแท่งเทียนวันใหม่โผล่มา ให้เลื่อนแกน X ตามไป 1 แท่งแบบเนียนๆ
+          const diff = data.length - prevLenRef.current;
+          setViewX(prev => ({ s: prev.s + diff, e: prev.e + diff }));
+          prevLenRef.current = data.length;
+       }
+       return; // 🌟 หยุดการทำงานตรงนี้ กราฟจะได้ไม่รีเซ็ตกลับไปตรงกลาง!
+    }
+
+    // จัดหน้าจอใหม่ (เฉพาะตอนเปลี่ยน Timeframe หรือเปลี่ยนหุ้น)
+    initRef.current = currentKey;
+    prevLenRef.current = data.length;
+
+    const len = data.length;
+    let startIdx = 0;
+    if (focusStartT) {
+      const targetStr = String(focusStartT);
+      const foundIdx = data.findIndex(d => String(d.t) >= targetStr);
+      if (foundIdx !== -1) startIdx = foundIdx;
+      else if (focusLength) startIdx = Math.max(0, len - focusLength);
+    } else if (focusLength) {
+      startIdx = Math.max(0, len - focusLength);
+    }
+
+    const visibleData = data.slice(startIdx, len);
+    const vs = visibleData.map(d => d.value || 0);
+    const dataMin = Math.min(...vs);
+    const dataMax = Math.max(...vs);
+    const padding = (dataMax - dataMin) * 0.1 || 1; 
+
+    setViewX({ s: startIdx, e: len - 1 });
+    setViewY({ min: dataMin - padding, max: dataMax + padding });
+  }, [data, focusLength, focusStartT]);
+
   useEffect(() => {
     if (!wrapRef.current) return;
-    const ro = new ResizeObserver(entries => {
-      for (const e of entries) setW(e.contentRect.width);
-    });
-    ro.observe(wrapRef.current);
-    return () => ro.disconnect();
+    const obs = new ResizeObserver(es => { if (es[0]) setW(es[0].contentRect.width); });
+    obs.observe(wrapRef.current);
+    const el = wrapRef.current;
+    const preventScroll = (e: WheelEvent) => e.preventDefault();
+    el.addEventListener("wheel", preventScroll, { passive: false });
+    return () => { obs.disconnect(); el.removeEventListener("wheel", preventScroll); };
   }, []);
 
-  if (!data || data.length === 0) return null;
-  const padL = 56, padR = 12, padT = 10, padB = showVolume ? 60 : 24;
-  const chartH = height - padT - padB;
+  if (!data || !Array.isArray(data) || data.length === 0) return null;
+
+  const padL = 40, padR = 50, padT = 20, padB = showVolume ? 40 : 20;
   const chartW = Math.max(1, w - padL - padR);
-  const vs = data.map(d => d.value);
-  const min = Math.min(...vs), max = Math.max(...vs);
-  const range = (max - min) || 1;
-  const stepX = chartW / (data.length - 1);
-  const xy = data.map((d, i) => [padL + i * stepX, padT + chartH - ((d.value - min) / range) * chartH] as [number, number]);
-  const path = xy.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
-  const fill = `${path} L${padL + chartW},${padT + chartH} L${padL},${padT + chartH} Z`;
+  const chartH = Math.max(1, height - padT - padB);
+
+  const spanX = Math.max(0.0001, viewX.e - viewX.s);
+  const stepX = chartW / spanX;
+  const rangeY = Math.max(0.0001, viewY.max - viewY.min);
+
+  const sIdx = Math.max(0, Math.floor(viewX.s));
+  const eIdx = Math.min(data.length, Math.ceil(viewX.e) + 1);
+  const visibleData = data.slice(sIdx, eIdx);
+
+  const getY = (val: number) => padT + chartH - (((val || 0) - viewY.min) / rangeY) * chartH;
+
+  const pts = visibleData.map((d, i) => [padL + (sIdx + i - viewX.s) * stepX, getY(d.value)]);
+  const path = pts.length > 0 ? pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ") : "";
+  const fill = pts.length > 0 ? `${path} L${pts[pts.length - 1][0]},${height - padB} L${pts[0][0]},${height - padB} Z` : "";
   const color = up ? "var(--green)" : "var(--red)";
-  const gid = `chart-${Math.random().toString(36).slice(2, 9)}`;
+  const gid = `grad-${color.replace(/[^\w]/g, "")}`;
 
   const yTicks = 5;
-  const ticks = Array.from({ length: yTicks }, (_, i) => {
-    const v = min + (range * (yTicks - 1 - i)) / (yTicks - 1);
-    const y = padT + (chartH * i) / (yTicks - 1);
-    return { v, y };
-  });
+  const ticks = Array.from({ length: yTicks }, (_, i) => ({
+    v: viewY.min + (rangeY * (yTicks - 1 - i)) / (yTicks - 1),
+    y: padT + (chartH * i) / (yTicks - 1)
+  }));
 
   const xTicks = 6;
   const xTicksArr = Array.from({ length: xTicks }, (_, i) => {
-    const idx = Math.floor((data.length - 1) * (i / (xTicks - 1)));
-    return { idx, x: padL + idx * stepX, label: data[idx].t };
-  });
+    const exactIndex = viewX.s + spanX * (i / (xTicks - 1));
+    const idx = Math.floor(exactIndex);
+    if (idx < 0 || idx >= data.length || !data[idx]) return null;
 
-  const handleMove: React.MouseEventHandler<SVGSVGElement> = (e) => {
+    let labelStr = String(data[idx].t || "");
+    if (labelStr.includes(" ")) labelStr = labelStr.split(" ")[0].substring(5);
+    return { x: padL + (exactIndex - viewX.s) * stepX, label: labelStr };
+  }).filter(Boolean) as { x: number; label: string | number }[];
+
+  const handleWheel = (e: React.WheelEvent) => {
+    const zoomFactor = e.deltaY > 0 ? 1.15 : 0.85;
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const i = Math.round((x - padL) / stepX);
-    if (i >= 0 && i < data.length) setHover({ i, x: xy[i][0], y: xy[i][1], v: data[i].value });
+    const mouseX = Math.max(0, Math.min(1, (e.clientX - rect.left - padL) / chartW));
+    let newSpanX = Math.max(2, spanX * zoomFactor);
+    let newS = viewX.s + (spanX - newSpanX) * mouseX;
+    let newE = newS + newSpanX;
+
+    const mouseY = Math.max(0, Math.min(1, (e.clientY - rect.top - padT) / chartH));
+    let newRangeY = rangeY * zoomFactor;
+    let newMin = viewY.min + (rangeY - newRangeY) * (1 - mouseY);
+    let newMax = newMin + newRangeY;
+
+    setViewX({ s: newS, e: newE });
+    setViewY({ min: newMin, max: newMax });
   };
 
-  const vols = data.map((d, i) => {
-    const seed = (d.value * 13 + i * 7) % 100;
-    return 0.3 + (seed / 100) * 0.7;
-  });
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (isDragging) {
+      const dx = e.clientX - dragRef.current.x;
+      const dy = e.clientY - dragRef.current.y;
+      setViewX(prev => ({ s: prev.s - dx * (spanX / chartW), e: prev.e - dx * (spanX / chartW) }));
+      setViewY(prev => ({ min: prev.min + dy * (rangeY / chartH), max: prev.max + dy * (rangeY / chartH) }));
+      dragRef.current = { x: e.clientX, y: e.clientY };
+    } else {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const exactIndex = (e.clientX - rect.left - padL) / stepX + viewX.s;
+      const i = Math.round(exactIndex);
+      if (i >= 0 && i < data.length && data[i]) {
+        setHover({ i, x: padL + (i - viewX.s) * stepX, y: getY(data[i].value), v: data[i].value });
+      } else setHover(null);
+    }
+  };
+
+  const handleDoubleClick = () => {
+    const len = data.length;
+    let startIdx = 0;
+    if (focusStartT) {
+      const targetStr = String(focusStartT);
+      const foundIdx = data.findIndex(d => String(d.t) >= targetStr);
+      if (foundIdx !== -1) startIdx = foundIdx;
+    }
+    const visibleData = data.slice(startIdx, len);
+    const vs = visibleData.map(d => d.value || 0);
+    const dataMin = Math.min(...vs);
+    const dataMax = Math.max(...vs);
+    const padding = (dataMax - dataMin) * 0.1 || 1;
+    setViewX({ s: startIdx, e: len - 1 });
+    setViewY({ min: dataMin - padding, max: dataMax + padding });
+  };
 
   return (
     <div ref={wrapRef} style={{ width: "100%", position: "relative" }}>
-      <svg width={w} height={height} onMouseMove={handleMove} onMouseLeave={() => setHover(null)} style={{ display: "block", cursor: "crosshair" }}>
+      <svg 
+        width={w} height={height} 
+        onWheel={handleWheel} 
+        onMouseDown={(e) => { setIsDragging(true); dragRef.current = { x: e.clientX, y: e.clientY }; }} 
+        onMouseMove={handleMouseMove} 
+        onMouseUp={() => setIsDragging(false)} 
+        onMouseLeave={() => { setIsDragging(false); setHover(null); }}
+        onDoubleClick={handleDoubleClick}
+        style={{ display: "block", cursor: isDragging ? "grabbing" : "crosshair", touchAction: "none" }}
+      >
         <defs>
           <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity={fillOpacity} />
             <stop offset="100%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
+
         {showGrid && ticks.map((t, i) => (
-          <line key={i} x1={padL} x2={padL + chartW} y1={t.y} y2={t.y} stroke="var(--border)" strokeDasharray="2 4" strokeWidth="1" />
+          <g key={`y-${i}`}>
+            <line x1={padL} x2={padL + chartW} y1={t.y} y2={t.y} stroke="var(--border)" strokeDasharray="2 4" strokeWidth="1" />
+            <text x={padL - 8} y={t.y + 3} fill="var(--text-muted)" fontSize="10" textAnchor="end" fontFamily="var(--mono)">{fmtPrice(t.v)}</text>
+          </g>
         ))}
-        {showGrid && ticks.map((t, i) => (
-          <text key={`yl-${i}`} x={padL - 8} y={t.y + 3} fill="var(--text-muted)" fontSize="10" textAnchor="end" fontFamily="var(--mono)">{fmtPrice(t.v)}</text>
+        {showGrid && xTicksArr.map((t, i) => (
+          <text key={`x-${i}`} x={t.x} y={padT + chartH + 14} fill="var(--text-muted)" fontSize="10" textAnchor="middle" fontFamily="var(--mono)">{t.label}</text>
         ))}
-        {xTicksArr.map((t, i) => (
-          <text key={`xl-${i}`} x={t.x} y={padT + chartH + 14} fill="var(--text-muted)" fontSize="10" textAnchor="middle" fontFamily="var(--mono)">{t.label}</text>
-        ))}
-        <path d={fill} fill={`url(#${gid})`} />
-        <path d={path} stroke={color} strokeWidth="1.5" fill="none" />
-        {showVolume && data.map((_d, i) => {
-          const h = vols[i] * 28;
-          return (<rect key={i} x={padL + i * stepX - stepX * 0.35} y={height - padB + 24 - h} width={stepX * 0.7} height={h} fill={color} opacity="0.35" />);
+
+        {demandZone && demandZone.length === 2 && (() => {
+          const yTop = getY(demandZone[1]), yBot = getY(demandZone[0]);
+          const h = Math.abs(yBot - yTop) || 1;
+          return (
+            <g>
+              <rect x={padL} y={Math.min(yTop, yBot)} width={chartW} height={h} fill="#b088f5" opacity={0.15} stroke="#b088f5" strokeWidth={1} />
+              <text x={padL + chartW / 2} y={Math.min(yTop, yBot) + h / 2 + 4} fill="#b088f5" fontSize={12} textAnchor="middle" fontFamily="var(--mono)" opacity={0.8} fontWeight="bold">DMZ</text>
+            </g>
+          );
+        })()}
+
+        {fibLevels && fibLevels.map((fib, i) => {
+          const y = getY(fib.value);
+          return (
+            <g key={`fib-${i}`}>
+              <line x1={padL} x2={padL + chartW} y1={y} y2={y} stroke="#ff9800" strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
+              <text x={padL + 4} y={y - 4} fill="#ff9800" fontSize={9} fontFamily="var(--mono)" opacity={0.9}>{fib.label}</text>
+              <text x={padL + chartW + 4} y={y + 3} fill="#ff9800" fontSize={9} fontFamily="var(--mono)">{fmtPrice(fib.value)}</text>
+            </g>
+          );
         })}
+
+        {srLevels && srLevels.map((sr, i) => {
+          const y = getY(sr.value);
+          return (
+            <g key={`sr-${i}`}>
+              <line x1={padL} x2={padL + chartW} y1={y} y2={y} stroke={sr.color} strokeWidth={1.5} opacity={0.8} />
+              <text x={padL + 4} y={y - 4} fill={sr.color} fontSize={9} fontFamily="var(--mono)" opacity={0.9} fontWeight="bold">{sr.label}</text>
+              <text x={padL + chartW + 4} y={y + 3} fill={sr.color} fontSize={9} fontFamily="var(--mono)" fontWeight="bold">{fmtPrice(sr.value)}</text>
+            </g>
+          );
+        })}
+
+        {pts.length > 0 && <path d={fill} fill={`url(#${gid})`} />}
+        {pts.length > 0 && <path d={path} stroke={color} strokeWidth="1.5" fill="none" />}
+        
+        {showVolume && visibleData.map((d, i) => {
+          if (!d) return null;
+          const actualIndex = sIdx + i;
+          const seed = ((d.value || 0) * 13 + actualIndex * 7) % 100;
+          const h = (0.3 + (seed / 100) * 0.7) * 12;
+          const rectW = Math.min(stepX * 0.7, 10);
+          return (<rect key={`vol-${actualIndex}`} x={padL + (actualIndex - viewX.s) * stepX - rectW / 2} y={height - 15 - h} width={rectW} height={h} fill={color} opacity="0.35" />);
+        })}
+
         {hover && (
           <g>
-            <line x1={hover.x} x2={hover.x} y1={padT} y2={padT + chartH} stroke="var(--text-secondary)" strokeDasharray="3 3" strokeWidth="1" />
-            <line x1={padL} x2={padL + chartW} y1={hover.y} y2={hover.y} stroke="var(--text-secondary)" strokeDasharray="3 3" strokeWidth="1" />
-            <circle cx={hover.x} cy={hover.y} r="4" fill={color} stroke="var(--bg2)" strokeWidth="2" />
+            <line x1={hover.x} x2={hover.x} y1={padT} y2={height - padB} stroke="var(--border-bright)" strokeWidth="1" strokeDasharray="2 2" />
+            <line x1={padL} x2={padL + chartW} y1={hover.y} y2={hover.y} stroke="var(--border-bright)" strokeWidth="1" strokeDasharray="2 2" />
+            <circle cx={hover.x} cy={hover.y} r="4" fill="var(--bg0)" stroke={color} strokeWidth="2" />
+            <rect x={padL + chartW} y={hover.y - 10} width="44" height="20" fill="var(--bg2)" stroke="var(--border)" strokeWidth="1" rx="2" />
+            <text x={padL + chartW + 22} y={hover.y + 4} fill="var(--text-primary)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmtPrice(hover.v)}</text>
           </g>
         )}
       </svg>
-      {hover && (
-        <div style={{
-          position: "absolute", left: Math.min(hover.x + 12, w - 140), top: Math.max(hover.y - 36, 8),
-          background: "var(--bg3)", border: "1px solid var(--border-bright)", padding: "6px 10px",
-          fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-primary)", pointerEvents: "none", whiteSpace: "nowrap",
-        }}>
-          <div style={{ color: "var(--text-muted)", fontSize: 9, marginBottom: 2 }}>{data[hover.i].t}</div>
-          ${fmtPrice(hover.v)}
-        </div>
-      )}
     </div>
   );
 };
@@ -172,5 +305,35 @@ export const Pill = ({ children, tone = "neutral" }: { children: ReactNode; tone
       padding: "2px 8px", fontSize: 10, fontFamily: "var(--mono)",
       letterSpacing: 0.5, textTransform: "uppercase",
     }}>{children}</span>
+  );
+};
+
+// 🌟 นำ Sparkline กลับมา (กราฟจิ๋วสำหรับ Watchlist และ Top Movers)
+export const Sparkline = ({ data, up, width = "100%", height = 28 }: { data: PricePoint[]; up: boolean; width?: number | string; height?: number }) => {
+  if (!data || data.length === 0) return <div style={{ width, height }} />;
+  
+  const vs = data.map(d => d.value || 0);
+  const min = Math.min(...vs);
+  const max = Math.max(...vs);
+  const range = max - min || 1;
+  
+  const stepX = 100 / Math.max(1, data.length - 1);
+  const pts = data.map((d, i) => [i * stepX, 100 - ((d.value - min) / range) * 100]);
+  
+  const path = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+  const fill = `${path} L100,100 L0,100 Z`;
+  const color = up ? "var(--green)" : "var(--red)";
+  
+  return (
+    <svg width={width} height={height} viewBox="0 0 100 100" preserveAspectRatio="none" style={{ display: "block" }}>
+      <defs>
+        <linearGradient id={`spark-${up ? 'up' : 'down'}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.25} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={fill} fill={`url(#spark-${up ? 'up' : 'down'})`} />
+      <path d={path} stroke={color} strokeWidth="1.5" fill="none" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 };
