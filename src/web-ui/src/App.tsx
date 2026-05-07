@@ -14,14 +14,15 @@ import type { Market, RangeKey, Alert } from "./types";
 
 function App() {
   const [activePage, setActivePage] = useState("overview");
-  const [selectedId, setSelectedId] = useState("sp500");
   const [range, setRange] = useState<RangeKey>("1M");
   const [tradeTicker, setTradeTicker] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
-  const [watched, setWatched] = useState<Set<string>>(new Set(["amd", "nvda", "meta", "tsla"]));
+  const [selectedId, setSelectedId] = useState("nvda"); // เปลี่ยนจาก "sp500" เป็น "nvda"
+  const [watched, setWatched] = useState<Set<string>>(new Set(["nvda", "tsla", "aapl", "msft"]));
   const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
   const [markets, setMarkets] = useState<Market[]>(MARKETS);
-
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isChartUpdating, setIsChartUpdating] = useState(false);
 
   // Chatbot parts
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -32,6 +33,7 @@ function App() {
   const [analyses, setAnalyses] = useState<Record<string, any>>({});
   const [loadingAnalyses, setLoadingAnalyses] = useState<Set<string>>(new Set());
   const [horizons, setHorizons] = useState<Record<string, string>>({});
+
   const handleHorizonChange = (ticker: string, newHorizon: string) => {
     setHorizons(prev => ({ ...prev, [ticker]: newHorizon }));
     setAnalyses(prev => {
@@ -41,7 +43,8 @@ function App() {
     });
   };
   
-  useEffect(() => {
+  // 🌟 ปิดระบบ AI ชั่วคราวตรงนี้ โดยการใส่ /* ครอบไว้ด้านบน และ */ ปิดท้ายบล็อก
+  /* useEffect(() => {
     const fetchAnalysis = async (ticker: string) => {
       try {
         setLoadingAnalyses(prev => new Set(prev).add(ticker));
@@ -76,22 +79,84 @@ function App() {
       }
     });
   }, [watched, markets, horizons]);
+  */
 
   // Live ticking
+  // 🌟 โค้ดดึงข้อมูลจริง (อัปเกรด: ดึงข้อมูลจริงของหุ้น "ทุกตัว" ในระบบ)
   useEffect(() => {
-    const t = setInterval(() => {
-      setMarkets(prev => prev.map(m => {
-        const drift = (Math.random() - 0.5) * m.base * 0.0008;
-        const newPrice = parseFloat((m.price + drift).toFixed(2));
-        const change = ((newPrice - m.base) / m.base) * 100;
-        const lastT = m.data["1D"][m.data["1D"].length - 1].t;
-        const newDay = [...m.data["1D"].slice(1), { i: m.data["1D"].length, t: lastT, value: newPrice }];
-        return { ...m, price: newPrice, change: parseFloat(change.toFixed(2)), up: change >= 0,
-                 data: { ...m.data, "1D": newDay } };
-      }));
-    }, 2200);
-    return () => clearInterval(t);
-  }, []);
+    const fetchAllRealData = async () => {
+      setIsChartUpdating(true);
+      // ใช้ Promise.all เพื่อให้ยิง API ดึงข้อมูลทุกตัวพร้อมกัน (ไม่กระตุก)
+      const promises = markets.map(async (m) => {
+        let updatedM = { ...m, data: { ...m.data } }; // ก๊อปปี้ข้อมูลเดิมไว้เตรียมทับด้วยของจริง
+        
+        try {
+          // 1. ดึงข้อมูล 1D (เพื่อเอาราคาล่าสุดวันนี้ และ % เปลี่ยนแปลงรายวันแบบเป๊ะๆ)
+          const res1D = await fetch("http://localhost:8000/chart", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticker: m.ticker, period: "1D" })
+          }).then(r => r.json());
+          
+          if (res1D.data && res1D.data.length > 0) {
+            const latestPrice = res1D.data[res1D.data.length - 1].value;
+            const openPrice = res1D.data[0].value;
+            updatedM.price = latestPrice;
+            updatedM.change = ((latestPrice - openPrice) / openPrice) * 100;
+            updatedM.up = updatedM.change >= 0;
+            updatedM.data["1D"] = res1D.data;
+          }
+
+          // 2. ดึงข้อมูล 1W (เพื่อวาดกราฟเส้นเล็กๆ ตรงเมนู Top Movers และ Watchlist)
+          const res1W = await fetch("http://localhost:8000/chart", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticker: m.ticker, period: "1W" })
+          }).then(r => r.json());
+          
+          if (res1W.data && res1W.data.length > 0) {
+            updatedM.data["1W"] = res1W.data;
+          }
+
+          // 3. ดึงกราฟใหญ่ (ตาม Range ที่เลือก เช่น 1M, 3M) ให้เฉพาะหุ้นที่กำลังเปิดดูอยู่เท่านั้น
+          if (m.id === selectedId) {
+            const resRange = await fetch("http://localhost:8000/chart", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticker: m.ticker, period: range })
+            }).then(r => r.json());
+            
+            // 🌟 1. ใช้ตัวพิมพ์ใหญ่เท่านั้น และใช้ 5Y เป็นค่าสูงสุดแทน MAX เพราะ API รู้จักแค่นี้ครับ
+            let historyPeriod = "5Y"; 
+            if (range === "1D") historyPeriod = "1W";      
+            else if (range === "1W") historyPeriod = "3M"; 
+            else if (range === "1M") historyPeriod = "1Y"; 
+            else if (range === "3M") historyPeriod = "5Y";
+
+            const resHistory = await fetch("http://localhost:8000/chart", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticker: m.ticker, period: historyPeriod })
+            }).then(r => r.json());
+
+            if (resRange.data && resRange.data.length > 0) {
+              updatedM.data[range] = resRange.data;
+              // 🌟 ยัดข้อมูลในอดีตเข้าไปในตัวแปรแบบเนียนๆ
+              (updatedM as any).chartHistory = resHistory.data || resRange.data; 
+            }
+          }
+        } catch (e) {
+          console.error(`Error fetching real data for ${m.ticker}`, e);
+        }
+        return updatedM;
+      });
+
+      // รอให้โหลดครบทุกตัว แล้วอัปเดตหน้าเว็บทีเดียว
+      const newMarkets = await Promise.all(promises);
+      setMarkets(newMarkets);
+      setIsInitialLoad(false);
+      setIsChartUpdating(false);
+    };
+
+    fetchAllRealData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, range]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -111,6 +176,7 @@ function App() {
   const watchlistMarkets = watched.size > 0 ? watchedMarkets : markets;
   const tradeMarket = tradeTicker ? findMarket(tradeTicker, markets) : null;
 
+  
   console.log("Current Analyses:", analyses);
 
   const handleChatSubmit = async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -147,6 +213,15 @@ function App() {
     }
   };
 
+  if (isInitialLoad) {
+    return (
+      <div className="app" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "var(--green)", fontFamily: "var(--mono)", fontSize: "14px", letterSpacing: "1px", background: "var(--bg0)" }}>
+        <span className="dot live" style={{ marginRight: "10px" }}></span> 
+        FETCHING LIVE MARKET DATA...
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <Sidebar activePage={activePage} setActivePage={setActivePage} />
@@ -171,7 +246,9 @@ function App() {
         <div className="scroll">
           {activePage === "overview" && (
             <Overview markets={markets} selectedId={selectedId} onSelect={setSelectedId}
-                      range={range} setRange={setRange} news={NEWS} />
+                      range={range} setRange={setRange} news={NEWS} 
+                      isChartUpdating={isChartUpdating} // 🌟 3. ส่งค่าไปให้หน้า Overview
+            />
           )}
           {activePage === "portfolio" && (
             <Portfolio markets={markets} holdings={HOLDINGS} transactions={TRANSACTIONS} onTrade={setTradeTicker} />

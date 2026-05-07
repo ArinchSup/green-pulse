@@ -1,8 +1,118 @@
 // src/pages/Watchlist.tsx
-import React, { useMemo, useState } from "react";
-import type { Market } from "../types";
+import React, { useMemo, useState, useEffect } from "react"; // 🌟 เพิ่ม useEffect ตรงนี้
 import { Sparkline } from "../primitives";
 import { fmtPrice, fmtPct } from "../format";
+import { LineChart } from "../primitives";
+import { RANGE_KEYS } from "../variable";
+import type { Market, RangeKey, PricePoint } from "../types";
+
+const WatchlistChart = ({ market }: { market: Market }) => {
+  const [range, setRange] = useState<RangeKey>("1W");
+  const [localSeries, setLocalSeries] = useState<PricePoint[]>(market.data["1W"] || []);
+  const [historySeries, setHistorySeries] = useState<PricePoint[]>([]); // 🌟 เก็บประวัติ
+  const [showFib, setShowFib] = useState(false);
+  const [showSR, setShowSR] = useState(false);
+  const [showDMZ, setShowDMZ] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchLocalData = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch("http://localhost:8000/chart", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticker: market.ticker, period: range })
+        });
+        
+        // 🌟 2. แก้ให้ตรงกันกับหน้า App.tsx
+        let hPeriod = "5Y";
+        if (range === "1D") hPeriod = "1W";
+        else if (range === "1W") hPeriod = "3M";
+        else if (range === "1M") hPeriod = "1Y";
+        else if (range === "3M") hPeriod = "5Y";
+
+        const resH = await fetch("http://localhost:8000/chart", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticker: market.ticker, period: hPeriod })
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && json.data.length > 0) setLocalSeries(json.data);
+        }
+        if (resH.ok) {
+          const jsonH = await resH.json();
+          if (jsonH.data && jsonH.data.length > 0) setHistorySeries(jsonH.data);
+        }
+      } catch (e) { console.error("Watchlist chart fetch error", e); } 
+      finally { setIsLoading(false); }
+    };
+    fetchLocalData();
+  }, [range, market.ticker]);
+
+  if (localSeries.length === 0) return <div style={{ color: "var(--text-muted)", fontSize: "12px" }}>Loading chart...</div>;
+
+  // 🌟 2. ล้างระบบเย็บกราฟออก ใช้ของใครของมัน
+  const calcSeries = localSeries;
+  const drawSeries = calcSeries;
+  const focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
+
+  // คำนวณค่าต่างๆ อิงจาก localSeries เท่านั้น
+  const high = Math.max(...localSeries.map(d => d.value));
+  const low  = Math.min(...localSeries.map(d => d.value));
+  const open = localSeries[0].value;
+  const last = localSeries[localSeries.length - 1].value;
+  const up = last >= open;
+  const rng = high - low;
+
+  const fibLevels = showFib ? [
+    { label: "161.8%", value: low + rng * 1.618 }, { label: "100.0%", value: high },
+    { label: "61.8%", value: low + rng * 0.618 }, { label: "50.0%", value: low + rng * 0.5 },
+    { label: "38.2%", value: low + rng * 0.382 }, { label: "0.0%", value: low }
+  ] : undefined;
+
+  const srLevels = showSR ? [
+    { label: "R2", value: high - rng * 0.05, color: "#00e5ff" }, { label: "R1", value: high - rng * 0.2, color: "#00e5ff" },
+    { label: "S1", value: low + rng * 0.25, color: "#00e5ff" }, { label: "S2", value: low + rng * 0.05, color: "#00e5ff" }
+  ] : undefined;
+
+  const sortedVals = [...localSeries.map(d => d.value)].sort((a,b) => a-b);
+  const dmzTop = sortedVals[Math.max(1, Math.floor(sortedVals.length * 0.10)) - 1];
+  const demandZone = showDMZ ? [low, dmzTop] as [number, number] : undefined;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", position: "relative" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
+        <div style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--mono)", letterSpacing: "1px" }}>{range} CHART TREND</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", transform: "scale(0.85)", transformOrigin: "left center" }}>
+          <div className="time-buttons" style={{ background: "var(--bg1)", border: "1px solid var(--border)" }}>
+            <button onClick={() => setShowFib(!showFib)} className="time-btn" style={{ color: showFib ? "#ff9800" : "var(--text-muted)" }}>FIB</button>
+            <button onClick={() => setShowSR(!showSR)} className="time-btn" style={{ color: showSR ? "#00e5ff" : "var(--text-muted)" }}>R/S</button>
+            <button onClick={() => setShowDMZ(!showDMZ)} className="time-btn" style={{ color: showDMZ ? "#b088f5" : "var(--text-muted)" }}>DMZ</button>
+          </div>
+          <div className="time-buttons">
+            {RANGE_KEYS.map(t => <button key={t} onClick={() => setRange(t)} className={`time-btn ${t === range ? "active" : ""}`}>{t}</button>)}
+          </div>
+        </div>
+      </div>
+      <div style={{ position: "relative", height: "180px", width: "100%" }}>
+        {isLoading && <div style={{ position: "absolute", inset: 0, background: "rgba(10,14,10,0.6)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--green)", fontSize: "10px", fontFamily: "var(--mono)" }}>UPDATING...</div>}
+        {/* 🌟 วาดกราฟโดยใช้ drawSeries และสั่งโฟกัสที่ localSeries */}
+        <LineChart 
+           data={drawSeries} 
+           focusStartT={focusStartT} // 🌟 โยนวันที่ลงไป
+           focusLength={localSeries.length} 
+           up={up} 
+           height={180} 
+           showVolume={true} 
+           fibLevels={fibLevels} 
+           srLevels={srLevels} 
+           demandZone={demandZone} 
+        />
+      </div>
+    </div>
+  );
+};
 
 export const Watchlist = ({ 
   markets, onSelect, onTrade, watched, toggleWatch, analyses = {}, 
@@ -152,18 +262,19 @@ export const Watchlist = ({
                         
                         <div style={{ 
                           display: "grid", 
-                          gridTemplateColumns: "1fr 1fr 3fr", 
+                          // 🌟 2. ขยายช่องกราฟเป็น 2.5 ส่วน และลดช่อง AI เหลือ 2 ส่วน
+                          gridTemplateColumns: "2.5fr 1fr 2fr", 
                           gap: "24px", 
                           background: "var(--bg2)", 
                           padding: "20px",
                           border: "1px solid var(--border-bright)", 
-                          borderRadius: "6px" 
+                          borderRadius: "6px",
+                          minWidth: 0 // ดักไม่ให้ Flex ทะลุจอ
                         }}>
                           
                           {/* Sec 1: Chart */}
-                          <div style={{ borderRight: "1px dashed var(--border)", paddingRight: "24px" }}>
-                            <div style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--text-muted)", marginBottom: "12px" }}>1W CHART TREND</div>
-                            <Sparkline data={m.data["1W"]} up={m.up} width={200} height={80} />
+                          <div style={{ borderRight: "1px dashed var(--border)", paddingRight: "24px", display: "flex", flexDirection: "column", minWidth: 0 }}>
+                            <WatchlistChart market={m} />
                           </div>
 
                           {/* Sec 2: Setup (Entry, Target, Stop) */}
