@@ -11,7 +11,7 @@ interface LineChartProps {
   showGrid?: boolean; 
   fillOpacity?: number; 
   showVolume?: boolean;
-  fibLevels?: { label: string; value: number }[];
+  fibLevels?: { label: string; value: number; color?: string }[];
   srLevels?: { label: string; value: number; color: string }[];
   demandZone?: [number, number] | null;
   focusLength?: number; 
@@ -24,57 +24,32 @@ export const LineChart = ({
 }: LineChartProps) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(800);
-  const [hover, setHover] = useState<{ i: number; x: number; y: number; v: number } | null>(null);
+  const [hover, setHover] = useState<{ i: number; x: number; y: number; v: number; t: string } | null>(null);
 
   const [viewX, setViewX] = useState({ s: 0, e: 100 });
-  const [viewY, setViewY] = useState({ min: 0, max: 100 });
   const [isDragging, setIsDragging] = useState(false);
-  const dragRef = useRef({ x: 0, y: 0 });
-
-  // 🌟 ตัวช่วยจำ ป้องกันกราฟเด้งกลับตอนราคา Live Update
-  const initRef = useRef<string | null>(null);
-  const prevLenRef = useRef<number>(0);
+  const dragRef = useRef({ x: 0 });
 
   useEffect(() => {
-    if (!data || !Array.isArray(data) || data.length === 0) return;
-
-    const currentKey = `${focusStartT || data[0].t}`;
-
-    // ถ้ารหัสกราฟยังเหมือนเดิม (แปลว่าแค่ราคาอัปเดต)
-    if (initRef.current === currentKey) {
-       if (data.length > prevLenRef.current) {
-          // ถ้ามีแท่งเทียนวันใหม่โผล่มา ให้เลื่อนแกน X ตามไป 1 แท่งแบบเนียนๆ
-          const diff = data.length - prevLenRef.current;
-          setViewX(prev => ({ s: prev.s + diff, e: prev.e + diff }));
-          prevLenRef.current = data.length;
-       }
-       return; // 🌟 หยุดการทำงานตรงนี้ กราฟจะได้ไม่รีเซ็ตกลับไปตรงกลาง!
-    }
-
-    // จัดหน้าจอใหม่ (เฉพาะตอนเปลี่ยน Timeframe หรือเปลี่ยนหุ้น)
-    initRef.current = currentKey;
-    prevLenRef.current = data.length;
+    if (!data || !Array.isArray(data) || data.length < 2) return;
 
     const len = data.length;
     let startIdx = 0;
+    
     if (focusStartT) {
-      const targetStr = String(focusStartT);
-      const foundIdx = data.findIndex(d => String(d.t) >= targetStr);
-      if (foundIdx !== -1) startIdx = foundIdx;
-      else if (focusLength) startIdx = Math.max(0, len - focusLength);
+      // 🌟 1. แปลงเวลาเป็น Timestamp เพื่อความแม่นยำระดับวินาที (แก้บัค 1M, 1Y ซูมผิดจุด)
+      const targetTime = new Date(String(focusStartT).replace(" ", "T")).getTime();
+      if (!isNaN(targetTime)) {
+        const foundIdx = data.findIndex(d => new Date(String(d.t).replace(" ", "T")).getTime() >= targetTime);
+        if (foundIdx !== -1) startIdx = foundIdx;
+      }
     } else if (focusLength) {
       startIdx = Math.max(0, len - focusLength);
     }
 
-    const visibleData = data.slice(startIdx, len);
-    const vs = visibleData.map(d => d.value || 0);
-    const dataMin = Math.min(...vs);
-    const dataMax = Math.max(...vs);
-    const padding = (dataMax - dataMin) * 0.1 || 1; 
-
-    setViewX({ s: startIdx, e: len - 1 });
-    setViewY({ min: dataMin - padding, max: dataMax + padding });
-  }, [data, focusLength, focusStartT]);
+    startIdx = Math.max(0, Math.min(startIdx, len - 2));
+    setViewX({ s: startIdx, e: len - 1 + (len - startIdx) * 0.05 });
+  }, [data, focusStartT, focusLength]);
 
   useEffect(() => {
     if (!wrapRef.current) return;
@@ -86,21 +61,33 @@ export const LineChart = ({
     return () => { obs.disconnect(); el.removeEventListener("wheel", preventScroll); };
   }, []);
 
-  if (!data || !Array.isArray(data) || data.length === 0) return null;
+  if (!data || !Array.isArray(data) || data.length < 2) return null;
 
-  const padL = 40, padR = 50, padT = 20, padB = showVolume ? 40 : 20;
+  const padL = 60, padR = 50, padT = 20, padB = showVolume ? 40 : 20;
   const chartW = Math.max(1, w - padL - padR);
   const chartH = Math.max(1, height - padT - padB);
 
   const spanX = Math.max(0.0001, viewX.e - viewX.s);
   const stepX = chartW / spanX;
-  const rangeY = Math.max(0.0001, viewY.max - viewY.min);
 
   const sIdx = Math.max(0, Math.floor(viewX.s));
   const eIdx = Math.min(data.length, Math.ceil(viewX.e) + 1);
   const visibleData = data.slice(sIdx, eIdx);
 
-  const getY = (val: number) => padT + chartH - (((val || 0) - viewY.min) / rangeY) * chartH;
+  const vs = visibleData.map(d => d.value || 0).filter(v => v > 0);
+  let dataMin = 0, dataMax = 100;
+  if (vs.length > 0) {
+    dataMin = Math.min(...vs);
+    dataMax = Math.max(...vs);
+    if (dataMin === dataMax) { dataMin -= 1; dataMax += 1; } 
+  }
+  
+  const paddingY = (dataMax - dataMin) * 0.1 || 1; 
+  const viewYMin = dataMin - paddingY;
+  const viewYMax = dataMax + paddingY;
+  const rangeY = Math.max(0.0001, viewYMax - viewYMin);
+
+  const getY = (val: number) => padT + chartH - (((val || 0) - viewYMin) / rangeY) * chartH;
 
   const pts = visibleData.map((d, i) => [padL + (sIdx + i - viewX.s) * stepX, getY(d.value)]);
   const path = pts.length > 0 ? pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ") : "";
@@ -110,7 +97,7 @@ export const LineChart = ({
 
   const yTicks = 5;
   const ticks = Array.from({ length: yTicks }, (_, i) => ({
-    v: viewY.min + (rangeY * (yTicks - 1 - i)) / (yTicks - 1),
+    v: viewYMin + (rangeY * (yTicks - 1 - i)) / (yTicks - 1),
     y: padT + (chartH * i) / (yTicks - 1)
   }));
 
@@ -121,7 +108,13 @@ export const LineChart = ({
     if (idx < 0 || idx >= data.length || !data[idx]) return null;
 
     let labelStr = String(data[idx].t || "");
-    if (labelStr.includes(" ")) labelStr = labelStr.split(" ")[0].substring(5);
+    if (labelStr.includes("-")) {
+      const parts = labelStr.split(" ")[0].split("-");
+      if (parts.length === 3) {
+        // 🌟 2. จัดวันที่เป็นรูปแบบ MM-DD-YY (ใส่เลขปี 2 หลักท้าย)
+        labelStr = `${parts[1]}-${parts[2]}-${parts[0].substring(2)}`;
+      }
+    }
     return { x: padL + (exactIndex - viewX.s) * stepX, label: labelStr };
   }).filter(Boolean) as { x: number; label: string | number }[];
 
@@ -129,32 +122,48 @@ export const LineChart = ({
     const zoomFactor = e.deltaY > 0 ? 1.15 : 0.85;
     const rect = e.currentTarget.getBoundingClientRect();
     const mouseX = Math.max(0, Math.min(1, (e.clientX - rect.left - padL) / chartW));
-    let newSpanX = Math.max(2, spanX * zoomFactor);
+    
+    let newSpanX = Math.max(5, spanX * zoomFactor); 
+    newSpanX = Math.min(data.length - 1, newSpanX); // 🌟 ล็อกไม่ให้ Zoom Out ทะลุข้อมูลอดีต
+    
     let newS = viewX.s + (spanX - newSpanX) * mouseX;
     let newE = newS + newSpanX;
 
-    const mouseY = Math.max(0, Math.min(1, (e.clientY - rect.top - padT) / chartH));
-    let newRangeY = rangeY * zoomFactor;
-    let newMin = viewY.min + (rangeY - newRangeY) * (1 - mouseY);
-    let newMax = newMin + newRangeY;
+    if (newS < 0) { newS = 0; newE = Math.min(data.length - 1, newSpanX); }
+    if (newE > data.length - 1) { newE = data.length - 1; newS = Math.max(0, newE - newSpanX); }
 
     setViewX({ s: newS, e: newE });
-    setViewY({ min: newMin, max: newMax });
   };
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (isDragging) {
       const dx = e.clientX - dragRef.current.x;
-      const dy = e.clientY - dragRef.current.y;
-      setViewX(prev => ({ s: prev.s - dx * (spanX / chartW), e: prev.e - dx * (spanX / chartW) }));
-      setViewY(prev => ({ min: prev.min + dy * (rangeY / chartH), max: prev.max + dy * (rangeY / chartH) }));
-      dragRef.current = { x: e.clientX, y: e.clientY };
+      const shiftX = -dx * (spanX / chartW);
+      
+      setViewX(prev => {
+        let nS = prev.s + shiftX;
+        let nE = prev.e + shiftX;
+        if (nS < 0) { nS = 0; nE = Math.min(data.length - 1, spanX); }
+        if (nE > data.length - 1) { nE = data.length - 1; nS = Math.max(0, nE - spanX); }
+        return { s: nS, e: nE };
+      });
+      dragRef.current = { x: e.clientX }; 
     } else {
       const rect = e.currentTarget.getBoundingClientRect();
       const exactIndex = (e.clientX - rect.left - padL) / stepX + viewX.s;
       const i = Math.round(exactIndex);
       if (i >= 0 && i < data.length && data[i]) {
-        setHover({ i, x: padL + (i - viewX.s) * stepX, y: getY(data[i].value), v: data[i].value });
+        // 🌟 จัดฟอร์แมตเวลาให้สวยงามก่อนแสดง
+        let timeStr = String(data[i].t || "");
+        if (timeStr.includes("-")) {
+          const parts = timeStr.split(" ")[0].split("-");
+          if (parts.length === 3) {
+            const dStr = `${parts[1]}-${parts[2]}-${parts[0].substring(2)}`;
+            const tStr = timeStr.includes(" ") ? " " + timeStr.split(" ")[1].substring(0, 5) : "";
+            timeStr = dStr + tStr;
+          }
+        }
+        setHover({ i, x: padL + (i - viewX.s) * stepX, y: getY(data[i].value), v: data[i].value, t: timeStr });
       } else setHover(null);
     }
   };
@@ -163,17 +172,14 @@ export const LineChart = ({
     const len = data.length;
     let startIdx = 0;
     if (focusStartT) {
-      const targetStr = String(focusStartT);
-      const foundIdx = data.findIndex(d => String(d.t) >= targetStr);
-      if (foundIdx !== -1) startIdx = foundIdx;
+      const targetTime = new Date(String(focusStartT).replace(" ", "T")).getTime();
+      if (!isNaN(targetTime)) {
+        const foundIdx = data.findIndex(d => new Date(String(d.t).replace(" ", "T")).getTime() >= targetTime);
+        if (foundIdx !== -1) startIdx = foundIdx;
+      }
     }
-    const visibleData = data.slice(startIdx, len);
-    const vs = visibleData.map(d => d.value || 0);
-    const dataMin = Math.min(...vs);
-    const dataMax = Math.max(...vs);
-    const padding = (dataMax - dataMin) * 0.1 || 1;
-    setViewX({ s: startIdx, e: len - 1 });
-    setViewY({ min: dataMin - padding, max: dataMax + padding });
+    startIdx = Math.max(0, Math.min(startIdx, len - 2));
+    setViewX({ s: startIdx, e: len - 1 + (len - startIdx) * 0.05 });
   };
 
   return (
@@ -181,7 +187,7 @@ export const LineChart = ({
       <svg 
         width={w} height={height} 
         onWheel={handleWheel} 
-        onMouseDown={(e) => { setIsDragging(true); dragRef.current = { x: e.clientX, y: e.clientY }; }} 
+        onMouseDown={(e) => { setIsDragging(true); dragRef.current = { x: e.clientX }; }} 
         onMouseMove={handleMouseMove} 
         onMouseUp={() => setIsDragging(false)} 
         onMouseLeave={() => { setIsDragging(false); setHover(null); }}
@@ -218,17 +224,24 @@ export const LineChart = ({
 
         {fibLevels && fibLevels.map((fib, i) => {
           const y = getY(fib.value);
+          if (y < padT - 5 || y > height - padB + 5) return null;
+          
+          // 🌟 ดึงสีมาใช้ ถ้าไม่มีให้ใช้สีส้ม และทำไฮไลท์ให้หนาขึ้น
+          const fColor = fib.color || "#ff9800";
+          const isHighlight = fColor === "#00e5ff"; 
+
           return (
             <g key={`fib-${i}`}>
-              <line x1={padL} x2={padL + chartW} y1={y} y2={y} stroke="#ff9800" strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
-              <text x={padL + 4} y={y - 4} fill="#ff9800" fontSize={9} fontFamily="var(--mono)" opacity={0.9}>{fib.label}</text>
-              <text x={padL + chartW + 4} y={y + 3} fill="#ff9800" fontSize={9} fontFamily="var(--mono)">{fmtPrice(fib.value)}</text>
+              <line x1={padL} x2={padL + chartW} y1={y} y2={y} stroke={fColor} strokeWidth={isHighlight ? 1.5 : 1} strokeDasharray="4 4" opacity={isHighlight ? 1 : 0.7} />
+              <text x={padL + 4} y={y - 4} fill={fColor} fontSize={9} fontFamily="var(--mono)" opacity={isHighlight ? 1 : 0.9} fontWeight={isHighlight ? "bold" : "normal"}>{fib.label}</text>
+              <text x={padL + chartW + 4} y={y + 3} fill={fColor} fontSize={9} fontFamily="var(--mono)" fontWeight={isHighlight ? "bold" : "normal"}>{fmtPrice(fib.value)}</text>
             </g>
           );
         })}
 
         {srLevels && srLevels.map((sr, i) => {
           const y = getY(sr.value);
+          if (y < padT - 5 || y > height - padB + 5) return null;
           return (
             <g key={`sr-${i}`}>
               <line x1={padL} x2={padL + chartW} y1={y} y2={y} stroke={sr.color} strokeWidth={1.5} opacity={0.8} />
@@ -255,8 +268,14 @@ export const LineChart = ({
             <line x1={hover.x} x2={hover.x} y1={padT} y2={height - padB} stroke="var(--border-bright)" strokeWidth="1" strokeDasharray="2 2" />
             <line x1={padL} x2={padL + chartW} y1={hover.y} y2={hover.y} stroke="var(--border-bright)" strokeWidth="1" strokeDasharray="2 2" />
             <circle cx={hover.x} cy={hover.y} r="4" fill="var(--bg0)" stroke={color} strokeWidth="2" />
+            
+            {/* กล่องราคาเลื่อนตามแนวตั้ง (Y) */}
             <rect x={padL + chartW} y={hover.y - 10} width="44" height="20" fill="var(--bg2)" stroke="var(--border)" strokeWidth="1" rx="2" />
             <text x={padL + chartW + 22} y={hover.y + 4} fill="var(--text-primary)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmtPrice(hover.v)}</text>
+            
+            {/* 🌟 กล่องวันที่ ย้ายขึ้นไปข้างบน (padT) */}
+            <rect x={hover.x - 45} y={padT - 18} width="90" height="18" fill="var(--bg2)" stroke="var(--border)" strokeWidth="1" rx="2" />
+            <text x={hover.x} y={padT - 5} fill="var(--text-primary)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{hover.t}</text>
           </g>
         )}
       </svg>
