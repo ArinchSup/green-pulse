@@ -26,7 +26,8 @@ def run_pipeline(TARGET_TICKER = "IREN", TARGET_HORIZON = "Short-term"):
 
     if len(all_news) > 30:
         all_news = all_news[:30]
-        
+    
+    print(f"\n{TARGET_TICKER}: {stock_info} News count: {len(all_news)}")
     overall = ai.analyze_overall_sentiment(TARGET_TICKER, stock_info, all_news, horizon=TARGET_HORIZON)
     
     # Save results

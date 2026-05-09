@@ -23,45 +23,79 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
   const [showSR, setShowSR] = useState(false);
   const [showDMZ, setShowDMZ] = useState(false);
   
-  // 🌟 1. ใช้ข้อมูลความละเอียดสูงของ Timeframe นั้นเพียวๆ ห้ามเอาอดีตมาต่อกัน!
   const calcSeries = m.data[range] || []; 
-  const drawSeries = calcSeries;
-  const focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
+  const history = (m as any).chartHistory;
   
-  // 🌟 2. คำนวณ High/Low อิงจากช่วง calcSeries (1M) เท่านั้น!
-  const high = calcSeries.length > 0 ? Math.max(...calcSeries.map(d => d.value)) : 0;
-  const low  = calcSeries.length > 0 ? Math.min(...calcSeries.map(d => d.value)) : 0;
+  // 🌟 ใช้ประวัติความละเอียดสูงวาดกราฟ (1D, 1W จะกลับมาละเอียดเหมือนเดิมและซูมได้)
+  const drawSeries = history && history.length > 0 ? history : calcSeries;
+  
+  // 🌟 บังคับใช้ข้อมูล 1Y สำหรับคำนวณ Fib/SR/DMZ เสมอ (แยกส่วนกับตัววาดกราฟ)
+  const refSeries = m.data["1Y"] && m.data["1Y"].length > 0 ? m.data["1Y"] : drawSeries; 
+  
+  let focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
+
+  // สำหรับ 1D ให้หากราฟวันล่าสุดที่ตลาดเปิด
+  if (range === "1D" && drawSeries.length > 0) {
+    const lastDate = String(drawSeries[drawSeries.length - 1].t).split(" ")[0];
+    const firstCandleOfDay = drawSeries.find((d: any) => String(d.t).startsWith(lastDate));
+    if (firstCandleOfDay) focusStartT = firstCandleOfDay.t;
+  }
+
+  // 🌟 High/Low สำหรับตีกรอบ Fib และ SR ใช้ refSeries (กรอบ 1Y แน่นอน)
+  const high = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
+  const low  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
+  
+  // 🌟 1. ใช้ refSeries (1Y) สำหรับคำนวณ Fib และแนวรับแนวต้าน
+  const fibHigh = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
+  const fibLow  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
+  const fibRng  = fibHigh - fibLow;
+  const refLast = refSeries.length > 0 ? refSeries[refSeries.length - 1].value : 1;
+
+  // 🌟 2. ใช้ calcSeries (ข้อมูลปัจจุบัน) สำหรับแสดง Stats ด้านล่าง (แก้กราฟ 1W แบนราบ)
+  const statHigh = calcSeries.length > 0 ? Math.max(...calcSeries.map((d: any) => d.value)) : 0;
+  const statLow  = calcSeries.length > 0 ? Math.min(...calcSeries.map((d: any) => d.value)) : 0;
+  const statRng  = statHigh - statLow;
+
   const open = calcSeries.length > 0 ? calcSeries[0].value : 1;
   const last = calcSeries.length > 0 ? calcSeries[calcSeries.length - 1].value : 1;
   const periodChg = ((last - open) / open) * 100;
   
-  // 🌟 1. การคำนวณระดับต่างๆ
-  const rng = high - low;
-  const fibLevels = showFib ? [
-    { label: "161.8%", value: low + rng * 1.618 },
-    { label: "100.0%", value: high },
-    { label: "78.6%",  value: low + rng * 0.786 },
-    { label: "61.8%",  value: low + rng * 0.618 },
-    { label: "50.0%",  value: low + rng * 0.5 },
-    { label: "38.2%",  value: low + rng * 0.382 },
-    { label: "23.6%",  value: low + rng * 0.236 },
-    { label: "0.0%",   value: low }
-  ] : undefined;
-
-  const srLevels = showSR ? [
-    { label: "R2", value: high - rng * 0.05, color: "#00e5ff" },
-    { label: "R1", value: high - rng * 0.2, color: "#00e5ff" },
-    { label: "S1", value: low + rng * 0.25, color: "#00e5ff" },
-    { label: "S2", value: low + rng * 0.05, color: "#00e5ff" }
-  ] : undefined;
-
-  // 🌟 2. อัลกอริทึมหา Demand Zone แบบฉลาด (หาโซนสะสมพลัง)
-  // เอาราคาทั้งหมดมาเรียงจากน้อยไปมาก แล้วดึงกลุ่มที่ราคาถูกที่สุด 10% มาสร้างเป็นโซน
-  const sortedVals = [...calcSeries.map(d => d.value)].sort((a,b) => a-b);
+  const sortedVals = [...refSeries.map((d: any) => d.value)].sort((a,b) => a-b);
   const bottom10Count = Math.max(1, Math.floor(sortedVals.length * 0.10));
-  const dmzTop = sortedVals[bottom10Count - 1]; // ราคาขอบบนของโซน
+  const dmzTop = sortedVals[bottom10Count - 1]; 
   
-  const demandZone = showDMZ ? [low, dmzTop] as [number, number] : undefined;
+  const demandZone = showDMZ ? [fibLow, dmzTop] as [number, number] : undefined;
+
+  // 🌟 ลอจิก AI หาเส้น Fib ที่ใกล้ราคาปัจจุบันที่สุด (ตามสูตร Shay)
+  const fib38 = fibLow + fibRng * 0.382;
+  const fib61 = fibLow + fibRng * 0.618;
+  const fib78 = fibLow + fibRng * 0.786;
+
+  let closestLabel = "38.2%";
+  let minDiff = Math.abs(last - fib38);
+  if (Math.abs(last - fib61) < minDiff) { minDiff = Math.abs(last - fib61); closestLabel = "61.8%"; }
+  if (Math.abs(last - fib78) < minDiff) { minDiff = Math.abs(last - fib78); closestLabel = "78.6%"; }
+
+  const getFibColor = (lbl: string) => lbl === closestLabel ? "#00e5ff" : "#ff9800";
+
+  const fibLevels = showFib ? [
+    { label: "0.0%", value: fibLow, color: "#ff9800" },
+    { label: "23.6%", value: fibLow + fibRng * 0.236, color: "#ff9800" },
+    { label: "38.2%", value: fib38, color: getFibColor("38.2%") },
+    { label: "50.0%", value: fibLow + fibRng * 0.500, color: "#ff9800" },
+    { label: "61.8%", value: fib61, color: getFibColor("61.8%") },
+    { label: "78.6%", value: fib78, color: getFibColor("78.6%") },
+    { label: "100.0%", value: fibHigh, color: "#ff9800" }
+  ] as any : undefined;
+
+  // 🌟 แก้ S/R ให้คำนวณจาก Timeframe ปัจจุบัน (statHigh, statLow) แทน 1Y เพื่อไม่ให้เส้นหลุดจอ
+  const P = (statHigh + statLow + last) / 3;
+  const srLevels = showSR ? [
+    { label: "RES2", value: P + statRng * 0.618, color: "#ff4466" },
+    { label: "RES1", value: P + statRng * 0.382, color: "#ff7788" },
+    { label: "SUP1", value: P - statRng * 0.382, color: "#00ee77" },
+    { label: "SUP2", value: P - statRng * 0.618, color: "#00d46a" }
+  ] as any : undefined;
 
   const otherStocks = markets.filter(x => x.id !== selectedId && x.sector === "Equity");
   const movers  = [...markets].sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 4);
@@ -132,9 +166,10 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
             {drawSeries.length > 0 ? (
               <>
                  <LineChart 
+                   key={range} // 🌟 บังคับกราฟรีเซ็ตจอ 100% เมื่อเปลี่ยน Timeframe
                    data={drawSeries} 
                    focusStartT={focusStartT}
-                   focusLength={calcSeries.length} // 🌟 สั่งให้โฟกัส
+                   focusLength={calcSeries.length}
                    up={periodChg >= 0} 
                    height={260} 
                    showVolume 
@@ -145,11 +180,11 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
                  
                  <div className="chart-stats" style={{ marginTop: "16px" }}>
                    <Stat label="Open" value={`$${fmtPrice(open)}`} />
-                   <Stat label="High" value={`$${fmtPrice(high)}`} />
-                   <Stat label="Low"  value={`$${fmtPrice(low)}`} />
+                   <Stat label="High" value={`$${fmtPrice(statHigh)}`} />
+                   <Stat label="Low"  value={`$${fmtPrice(statLow)}`} />
                    <Stat label={`${range} Δ`} value={fmtPct(periodChg)} tone={periodChg >= 0 ? "up" : "down"} />
-                   <Stat label="Range" value={`$${fmtPrice(high - low)}`} />
-                   <Stat label="Volatility" value={`${(((high - low) / open) * 100).toFixed(2)}%`} />
+                   <Stat label="Range" value={`$${fmtPrice(statRng)}`} />
+                   <Stat label="Volatility" value={`${((statRng / open) * 100).toFixed(2)}%`} />
                  </div>
               </>
             ) : (

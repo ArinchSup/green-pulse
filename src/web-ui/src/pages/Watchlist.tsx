@@ -14,6 +14,7 @@ const WatchlistChart = ({ market }: { market: Market }) => {
   const [showSR, setShowSR] = useState(false);
   const [showDMZ, setShowDMZ] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [refSeries1Y, setRefSeries1Y] = useState<PricePoint[]>([]);
 
   useEffect(() => {
     const fetchLocalData = async () => {
@@ -24,16 +25,21 @@ const WatchlistChart = ({ market }: { market: Market }) => {
           body: JSON.stringify({ ticker: market.ticker, period: range })
         });
         
-        // 🌟 2. แก้ให้ตรงกันกับหน้า App.tsx
-        let hPeriod = "5Y";
-        if (range === "1D") hPeriod = "1W";
-        else if (range === "1W") hPeriod = "3M";
-        else if (range === "1M") hPeriod = "1Y";
-        else if (range === "3M") hPeriod = "5Y";
+        let drawHistoryPeriod = "5Y";
+        if (range === "1D") drawHistoryPeriod = "1W";
+        else if (range === "1W") drawHistoryPeriod = "1M";
+        else if (range === "1M") drawHistoryPeriod = "1Y";
+        else drawHistoryPeriod = "5Y";
 
         const resH = await fetch("http://localhost:8000/chart", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticker: market.ticker, period: hPeriod })
+          body: JSON.stringify({ ticker: market.ticker, period: drawHistoryPeriod })
+        });
+
+        // 🌟 2. ดึง 1Y สำหรับคำนวณ Fib
+        const res1Y = await fetch("http://localhost:8000/chart", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticker: market.ticker, period: "1Y" })
         });
 
         if (res.ok) {
@@ -44,6 +50,10 @@ const WatchlistChart = ({ market }: { market: Market }) => {
           const jsonH = await resH.json();
           if (jsonH.data && jsonH.data.length > 0) setHistorySeries(jsonH.data);
         }
+        if (res1Y.ok) {
+          const json1Y = await res1Y.json();
+          if (json1Y.data && json1Y.data.length > 0) setRefSeries1Y(json1Y.data); // 🌟 เก็บ 1Y
+        }
       } catch (e) { console.error("Watchlist chart fetch error", e); } 
       finally { setIsLoading(false); }
     };
@@ -52,33 +62,71 @@ const WatchlistChart = ({ market }: { market: Market }) => {
 
   if (localSeries.length === 0) return <div style={{ color: "var(--text-muted)", fontSize: "12px" }}>Loading chart...</div>;
 
-  // 🌟 2. ล้างระบบเย็บกราฟออก ใช้ของใครของมัน
   const calcSeries = localSeries;
-  const drawSeries = calcSeries;
-  const focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
+  const drawSeries = historySeries && historySeries.length > 0 ? historySeries : calcSeries;
+  
+  // 🌟 ใช้ 1Y ในการคำนวณ Fib เสมอ
+  const refSeries = refSeries1Y.length > 0 ? refSeries1Y : drawSeries;
+  
+  let focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
+  
+  if (range === "1D" && drawSeries.length > 0) {
+    const lastDate = String(drawSeries[drawSeries.length - 1].t).split(" ")[0];
+    const firstCandleOfDay = drawSeries.find((d: any) => String(d.t).startsWith(lastDate));
+    if (firstCandleOfDay) focusStartT = firstCandleOfDay.t;
+  }
 
-  // คำนวณค่าต่างๆ อิงจาก localSeries เท่านั้น
-  const high = Math.max(...localSeries.map(d => d.value));
-  const low  = Math.min(...localSeries.map(d => d.value));
-  const open = localSeries[0].value;
-  const last = localSeries[localSeries.length - 1].value;
+  // 🌟 ใช้ refSeries (1Y) หา High/Low ตีเส้น
+  const high = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
+  const low  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
+  const fibHigh = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
+  const fibLow  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
+  const fibRng  = fibHigh - fibLow;
+  const refLast = refSeries.length > 0 ? refSeries[refSeries.length - 1].value : 1;
+
+  const open = calcSeries.length > 0 ? calcSeries[0].value : 1;
+  const last = calcSeries.length > 0 ? calcSeries[calcSeries.length - 1].value : 1;
   const up = last >= open;
-  const rng = high - low;
+  
+  const sortedVals = [...refSeries.map((d: any) => d.value)].sort((a,b) => a-b);
+  const dmzTop = sortedVals[Math.max(1, Math.floor(sortedVals.length * 0.10)) - 1];
+  const demandZone = showDMZ ? [fibLow, dmzTop] as [number, number] : undefined;
+
+  // 🌟 1. หาค่าสถิติของหน้าปัจจุบันสำหรับ S/R (ดึงจาก calcSeries)
+  const statHigh = calcSeries.length > 0 ? Math.max(...calcSeries.map((d: any) => d.value)) : 0;
+  const statLow  = calcSeries.length > 0 ? Math.min(...calcSeries.map((d: any) => d.value)) : 0;
+  const statRng  = statHigh - statLow;
+
+  // 🌟 2. ลอจิกไฮไลท์ Fib
+  const fib38 = fibLow + fibRng * 0.382;
+  const fib61 = fibLow + fibRng * 0.618;
+  const fib78 = fibLow + fibRng * 0.786;
+
+  let closestLabel = "38.2%";
+  let minDiff = Math.abs(last - fib38);
+  if (Math.abs(last - fib61) < minDiff) { minDiff = Math.abs(last - fib61); closestLabel = "61.8%"; }
+  if (Math.abs(last - fib78) < minDiff) { minDiff = Math.abs(last - fib78); closestLabel = "78.6%"; }
+
+  const getFibColor = (lbl: string) => lbl === closestLabel ? "#00e5ff" : "#ff9800";
 
   const fibLevels = showFib ? [
-    { label: "161.8%", value: low + rng * 1.618 }, { label: "100.0%", value: high },
-    { label: "61.8%", value: low + rng * 0.618 }, { label: "50.0%", value: low + rng * 0.5 },
-    { label: "38.2%", value: low + rng * 0.382 }, { label: "0.0%", value: low }
-  ] : undefined;
+    { label: "0.0%", value: fibLow, color: "#ff9800" },
+    { label: "23.6%", value: fibLow + fibRng * 0.236, color: "#ff9800" },
+    { label: "38.2%", value: fib38, color: getFibColor("38.2%") },
+    { label: "50.0%", value: fibLow + fibRng * 0.500, color: "#ff9800" },
+    { label: "61.8%", value: fib61, color: getFibColor("61.8%") },
+    { label: "78.6%", value: fib78, color: getFibColor("78.6%") },
+    { label: "100.0%", value: fibHigh, color: "#ff9800" }
+  ] as any : undefined;
 
+  // 🌟 3. S/R ที่คำนวณจาก Timeframe ปัจจุบัน
+  const P = (statHigh + statLow + last) / 3;
   const srLevels = showSR ? [
-    { label: "R2", value: high - rng * 0.05, color: "#00e5ff" }, { label: "R1", value: high - rng * 0.2, color: "#00e5ff" },
-    { label: "S1", value: low + rng * 0.25, color: "#00e5ff" }, { label: "S2", value: low + rng * 0.05, color: "#00e5ff" }
-  ] : undefined;
-
-  const sortedVals = [...localSeries.map(d => d.value)].sort((a,b) => a-b);
-  const dmzTop = sortedVals[Math.max(1, Math.floor(sortedVals.length * 0.10)) - 1];
-  const demandZone = showDMZ ? [low, dmzTop] as [number, number] : undefined;
+    { label: "RES2", value: P + statRng * 0.618, color: "#ff4466" },
+    { label: "RES1", value: P + statRng * 0.382, color: "#ff7788" },
+    { label: "SUP1", value: P - statRng * 0.382, color: "#00ee77" },
+    { label: "SUP2", value: P - statRng * 0.618, color: "#00d46a" }
+  ] as any : undefined;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100%", position: "relative" }}>
@@ -99,9 +147,10 @@ const WatchlistChart = ({ market }: { market: Market }) => {
         {isLoading && <div style={{ position: "absolute", inset: 0, background: "rgba(10,14,10,0.6)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--green)", fontSize: "10px", fontFamily: "var(--mono)" }}>UPDATING...</div>}
         {/* 🌟 วาดกราฟโดยใช้ drawSeries และสั่งโฟกัสที่ localSeries */}
         <LineChart 
+           key={range} // 🌟 บังคับกราฟรีเซ็ตจอ
            data={drawSeries} 
-           focusStartT={focusStartT} // 🌟 โยนวันที่ลงไป
-           focusLength={localSeries.length} 
+           focusStartT={focusStartT}
+           focusLength={calcSeries.length} 
            up={up} 
            height={180} 
            showVolume={true} 

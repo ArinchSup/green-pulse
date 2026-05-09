@@ -123,21 +123,27 @@ function App() {
               body: JSON.stringify({ ticker: m.ticker, period: range })
             }).then(r => r.json());
             
-            // 🌟 1. ใช้ตัวพิมพ์ใหญ่เท่านั้น และใช้ 5Y เป็นค่าสูงสุดแทน MAX เพราะ API รู้จักแค่นี้ครับ
-            let historyPeriod = "5Y"; 
-            if (range === "1D") historyPeriod = "1W";      
-            else if (range === "1W") historyPeriod = "3M"; 
-            else if (range === "1M") historyPeriod = "1Y"; 
-            else if (range === "3M") historyPeriod = "5Y";
+            // 🌟 เปลี่ยน 1W ให้ดึงประวัติ 1M (จะได้ความละเอียดรายชั่วโมง กราฟจะไม่เป็นเส้นตรง)
+            let drawHistoryPeriod = "5Y"; 
+            if (range === "1D") drawHistoryPeriod = "1W";      
+            else if (range === "1W") drawHistoryPeriod = "1W"; // <-- แก้ตรงนี้
+            else if (range === "1M") drawHistoryPeriod = "1Y"; 
+            else drawHistoryPeriod = "5Y";
 
             const resHistory = await fetch("http://localhost:8000/chart", {
               method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ ticker: m.ticker, period: historyPeriod })
+              body: JSON.stringify({ ticker: m.ticker, period: drawHistoryPeriod })
+            }).then(r => r.json());
+
+            // 🌟 2. แอบดึง 1Y แยกต่างหาก เพื่อเอาไว้คำนวณ Fib/SR/DMZ ให้เป็นของ 1 ปีเสมอ
+            const res1Y = await fetch("http://localhost:8000/chart", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticker: m.ticker, period: "1Y" })
             }).then(r => r.json());
 
             if (resRange.data && resRange.data.length > 0) {
               updatedM.data[range] = resRange.data;
-              // 🌟 ยัดข้อมูลในอดีตเข้าไปในตัวแปรแบบเนียนๆ
+              if (res1Y.data) updatedM.data["1Y"] = res1Y.data; // ยัด 1Y เก็บไว้
               (updatedM as any).chartHistory = resHistory.data || resRange.data; 
             }
           }
