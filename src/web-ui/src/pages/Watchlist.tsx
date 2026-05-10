@@ -1,5 +1,5 @@
 // src/pages/Watchlist.tsx
-import React, { useMemo, useState, useEffect } from "react"; // 🌟 เพิ่ม useEffect ตรงนี้
+import React, { useMemo, useState, useEffect } from "react"; 
 import { Sparkline } from "../primitives";
 import { fmtPrice, fmtPct } from "../format";
 import { LineChart } from "../primitives";
@@ -9,7 +9,7 @@ import type { Market, RangeKey, PricePoint } from "../types";
 const WatchlistChart = ({ market }: { market: Market }) => {
   const [range, setRange] = useState<RangeKey>("1W");
   const [localSeries, setLocalSeries] = useState<PricePoint[]>(market.data["1W"] || []);
-  const [historySeries, setHistorySeries] = useState<PricePoint[]>([]); // 🌟 เก็บประวัติ
+  const [historySeries, setHistorySeries] = useState<PricePoint[]>([]); 
   const [showFib, setShowFib] = useState(false);
   const [showSR, setShowSR] = useState(false);
   const [showDMZ, setShowDMZ] = useState(false);
@@ -27,7 +27,7 @@ const WatchlistChart = ({ market }: { market: Market }) => {
         
         let drawHistoryPeriod = "5Y";
         if (range === "1D") drawHistoryPeriod = "1W";
-        else if (range === "1W") drawHistoryPeriod = "1M";
+        else if (range === "1W") drawHistoryPeriod = "1W";
         else if (range === "1M") drawHistoryPeriod = "1Y";
         else drawHistoryPeriod = "5Y";
 
@@ -36,7 +36,6 @@ const WatchlistChart = ({ market }: { market: Market }) => {
           body: JSON.stringify({ ticker: market.ticker, period: drawHistoryPeriod })
         });
 
-        // 🌟 2. ดึง 1Y สำหรับคำนวณ Fib
         const res1Y = await fetch("http://localhost:8000/chart", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ticker: market.ticker, period: "1Y" })
@@ -64,8 +63,7 @@ const WatchlistChart = ({ market }: { market: Market }) => {
 
   const calcSeries = localSeries;
   const drawSeries = historySeries && historySeries.length > 0 ? historySeries : calcSeries;
-  
-  // 🌟 ใช้ 1Y ในการคำนวณ Fib เสมอ
+ 
   const refSeries = refSeries1Y.length > 0 ? refSeries1Y : drawSeries;
   
   let focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
@@ -76,13 +74,9 @@ const WatchlistChart = ({ market }: { market: Market }) => {
     if (firstCandleOfDay) focusStartT = firstCandleOfDay.t;
   }
 
-  // 🌟 ใช้ refSeries (1Y) หา High/Low ตีเส้น
-  const high = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
-  const low  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
   const fibHigh = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
   const fibLow  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
   const fibRng  = fibHigh - fibLow;
-  const refLast = refSeries.length > 0 ? refSeries[refSeries.length - 1].value : 1;
 
   const open = calcSeries.length > 0 ? calcSeries[0].value : 1;
   const last = calcSeries.length > 0 ? calcSeries[calcSeries.length - 1].value : 1;
@@ -92,12 +86,10 @@ const WatchlistChart = ({ market }: { market: Market }) => {
   const dmzTop = sortedVals[Math.max(1, Math.floor(sortedVals.length * 0.10)) - 1];
   const demandZone = showDMZ ? [fibLow, dmzTop] as [number, number] : undefined;
 
-  // 🌟 1. หาค่าสถิติของหน้าปัจจุบันสำหรับ S/R (ดึงจาก calcSeries)
   const statHigh = calcSeries.length > 0 ? Math.max(...calcSeries.map((d: any) => d.value)) : 0;
   const statLow  = calcSeries.length > 0 ? Math.min(...calcSeries.map((d: any) => d.value)) : 0;
   const statRng  = statHigh - statLow;
 
-  // 🌟 2. ลอจิกไฮไลท์ Fib
   const fib38 = fibLow + fibRng * 0.382;
   const fib61 = fibLow + fibRng * 0.618;
   const fib78 = fibLow + fibRng * 0.786;
@@ -119,7 +111,6 @@ const WatchlistChart = ({ market }: { market: Market }) => {
     { label: "100.0%", value: fibHigh, color: "#ff9800" }
   ] as any : undefined;
 
-  // 🌟 3. S/R ที่คำนวณจาก Timeframe ปัจจุบัน
   const P = (statHigh + statLow + last) / 3;
   const srLevels = showSR ? [
     { label: "RES2", value: P + statRng * 0.618, color: "#ff4466" },
@@ -145,9 +136,8 @@ const WatchlistChart = ({ market }: { market: Market }) => {
       </div>
       <div style={{ position: "relative", height: "180px", width: "100%" }}>
         {isLoading && <div style={{ position: "absolute", inset: 0, background: "rgba(10,14,10,0.6)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--green)", fontSize: "10px", fontFamily: "var(--mono)" }}>UPDATING...</div>}
-        {/* 🌟 วาดกราฟโดยใช้ drawSeries และสั่งโฟกัสที่ localSeries */}
         <LineChart 
-           key={range} // 🌟 บังคับกราฟรีเซ็ตจอ
+           key={range} 
            data={drawSeries} 
            focusStartT={focusStartT}
            focusLength={calcSeries.length} 
@@ -164,30 +154,38 @@ const WatchlistChart = ({ market }: { market: Market }) => {
 };
 
 export const Watchlist = ({ 
-  markets, onSelect, onTrade, watched, toggleWatch, analyses = {}, 
-  horizons = {}, onHorizonChange 
+  markets, onSelect, onTrade, watchlists, toggleWatch, 
+  onCreateWatchlist, onDeleteWatchlist, 
+  analyses = {}, horizons = {}, onHorizonChange 
 }: {
-  markets: Market[];
-  onSelect: (id: string) => void;
-  onTrade: (ticker: string) => void;
-  watched: Set<string>;
-  toggleWatch: (id: string) => void;
-  analyses?: Record<string, any>;
-  horizons?: Record<string, string>;
-  onHorizonChange?: (ticker: string, h: string) => void;
+  markets: Market[]; onSelect: (id: string) => void; onTrade: (ticker: string) => void;
+  watchlists: Record<string, string[]>; 
+  toggleWatch: (id: string, listName: string) => void; 
+  onCreateWatchlist: (name: string) => void; 
+  onDeleteWatchlist: (name: string) => void; 
+  analyses?: Record<string, any>; horizons?: Record<string, string>; onHorizonChange?: (ticker: string, h: string) => void;
 }) => {
   type SortCol = "ticker" | "sector" | "price" | "change";
   const [sortBy, setSortBy] = useState<SortCol>("change");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<string>("All");
   const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
 
-  const sectors = ["All", ...new Set(markets.map(m => m.sector))];
+  const lists = Object.keys(watchlists).sort((a, b) => {
+    if (a === "Favorites") return -1;
+    if (b === "Favorites") return 1;
+    return a.localeCompare(b);
+  });
+  const [activeList, setActiveList] = useState(lists[0] || "Favorites");
+  
+  const [isCreating, setIsCreating] = useState(false);
+  const [newTopic, setNewTopic] = useState("");
+
+  const activeTickers = watchlists[activeList] || [];
+  const watchlistMarkets = markets.filter(m => activeTickers.includes(m.id));
 
   const sorted = useMemo(() => {
-    let list = markets.filter(m =>
-      (filter === "All" || m.sector === filter) &&
+    let list = watchlistMarkets.filter(m =>
       (q === "" || m.ticker.toLowerCase().includes(q.toLowerCase()) || m.label.toLowerCase().includes(q.toLowerCase()))
     );
     list = [...list].sort((a, b) => {
@@ -196,7 +194,7 @@ export const Watchlist = ({
       return dir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [markets, sortBy, dir, q, filter]);
+  }, [markets, watchlists, activeList, sortBy, dir, q]);
 
   const click = (col: SortCol) => {
     if (sortBy === col) setDir(dir === "asc" ? "desc" : "asc");
@@ -221,14 +219,59 @@ export const Watchlist = ({
 
   return (
     <div className="page">
-      <div className="watchlist-toolbar">
-        <input className="search-input" placeholder="Search ticker or name…" value={q} onChange={e => setQ(e.target.value)} />
-        <div className="filter-chips">
-          {sectors.map(s => (
-            <button key={s} className={`chip ${filter === s ? "active" : ""}`} onClick={() => setFilter(s)}>{s}</button>
-          ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "20px" }}>
+        
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", borderBottom: "1px solid var(--border)", paddingBottom: "12px", flexWrap: "wrap" }}>
+           <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--mono)", fontWeight: "bold" }}>TOPICS:</span>
+           <div className="filter-chips" style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
+             {lists.map(l => (
+               <button key={l} className={`chip ${activeList === l ? "active" : ""}`} onClick={() => setActiveList(l)}>{l}</button>
+             ))}
+             
+             {isCreating ? (
+               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                 <input 
+                   value={newTopic} onChange={e => setNewTopic(e.target.value)} 
+                   placeholder="Topic name..." autoFocus
+                   style={{ background: "var(--bg2)", color: "var(--text-primary)", border: "1px solid var(--green)", padding: "4px 8px", borderRadius: "4px", fontSize: "11px", outline: "none", width: "120px" }}
+                   onKeyDown={e => {
+                     if (e.key === 'Enter' && newTopic.trim()) {
+                       onCreateWatchlist(newTopic.trim());
+                       setActiveList(newTopic.trim());
+                       setIsCreating(false); setNewTopic("");
+                     } else if (e.key === 'Escape') setIsCreating(false);
+                   }}
+                 />
+                 <button onClick={() => {
+                    if (newTopic.trim()) { onCreateWatchlist(newTopic.trim()); setActiveList(newTopic.trim()); }
+                    setIsCreating(false); setNewTopic("");
+                 }} style={{ background: "var(--green)", color: "var(--bg0)", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", fontWeight: "bold" }}>ADD</button>
+               </div>
+             ) : (
+               <button className="chip" onClick={() => setIsCreating(true)} style={{ borderStyle: "dashed", opacity: 0.7 }}>+ NEW TOPIC</button>
+             )}
+
+             {activeList !== "Favorites" && (
+               <button 
+                 onClick={() => {
+                   if (window.confirm(`Delete topic "${activeList}"?`)) {
+                      onDeleteWatchlist(activeList);
+                      setActiveList("Favorites"); 
+                   }
+                 }}
+                 style={{ background: "transparent", color: "var(--red)", border: "1px solid rgba(255, 68, 102, 0.4)", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", marginLeft: "auto", fontFamily: "var(--mono)" }}
+               >
+                 DELETE
+               </button>
+             )}
+           </div>
+        </div>
+
+        <div className="watchlist-toolbar" style={{ margin: 0 }}>
+          <input className="search-input" style={{ maxWidth: "300px" }} placeholder="Filter ticker or name…" value={q} onChange={e => setQ(e.target.value)} />
         </div>
       </div>
+      
       <div className="card" style={{ padding: 0 }}>
         <table className="data-table">
           <thead>
@@ -247,8 +290,8 @@ export const Watchlist = ({
           <tbody>
             {sorted.map(m => {
               const aiData = analyses[m.ticker];
-              const signal = aiData ? (aiData.action || aiData.ai_analysis?.action || "HOLD") : "LOADING...";
               const isExpanded = expandedTickers.has(m.ticker);
+              const signal = aiData ? (aiData.action || aiData.ai_analysis?.action || "LOADING...") : "LOADING...";
               
               let signalColor = "var(--text-muted)";
               if (signal === "BUY") signalColor = "var(--up)";
@@ -262,8 +305,8 @@ export const Watchlist = ({
                     style={{ cursor: "pointer", background: isExpanded ? "rgba(255,255,255,0.02)" : "transparent" }}
                   >
                     <td>
-                      <button className="watch-star" onClick={(e) => { e.stopPropagation(); toggleWatch(m.id); }} aria-label="Toggle watch">
-                        {watched.has(m.id) ? "★" : "☆"}
+                      <button className="watch-star" onClick={(e) => { e.stopPropagation(); toggleWatch(m.id, activeList); }} aria-label="Toggle watch">
+                        {watchlists[activeList]?.includes(m.id) ? "★" : "☆"}
                       </button>
                     </td>
                     <td>
@@ -278,9 +321,10 @@ export const Watchlist = ({
                     
                     <td style={{ textAlign: "center" }}>
                       <select
-                        value={horizons[m.ticker] || "Mid-term"}
+                        className="horizon-select" 
+                        value={horizons[m.id] || "Mid-term"} 
+                        onChange={(e) => onHorizonChange && onHorizonChange(m.id, e.target.value)}
                         onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => onHorizonChange && onHorizonChange(m.ticker, e.target.value)}
                         style={{
                           background: "var(--bg3)", color: "var(--text-secondary)", border: "1px solid var(--border)",
                           padding: "4px 6px", fontFamily: "var(--mono)", fontSize: "10px", outline: "none", cursor: "pointer", borderRadius: "4px"
@@ -311,7 +355,6 @@ export const Watchlist = ({
                         
                         <div style={{ 
                           display: "grid", 
-                          // 🌟 2. ขยายช่องกราฟเป็น 2.5 ส่วน และลดช่อง AI เหลือ 2 ส่วน
                           gridTemplateColumns: "2.5fr 1fr 2fr", 
                           gap: "24px", 
                           background: "var(--bg2)", 

@@ -12,17 +12,255 @@ import {
 } from "./variable";
 import type { Market, RangeKey, Alert } from "./types";
 
+import { supabase } from "./supabaseClient";
+
 function App() {
   const [activePage, setActivePage] = useState("overview");
   const [range, setRange] = useState<RangeKey>("1M");
   const [tradeTicker, setTradeTicker] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
-  const [selectedId, setSelectedId] = useState("nvda"); // เปลี่ยนจาก "sp500" เป็น "nvda"
-  const [watched, setWatched] = useState<Set<string>>(new Set(["nvda", "tsla", "aapl", "msft"]));
+  const [selectedId, setSelectedId] = useState("nvda"); 
+  
+  const [watchlists, setWatchlists] = useState<Record<string, string[]>>({});
+  const [pinnedOverview, setPinnedOverview] = useState<string[]>([]);
+  const [isDbLoaded, setIsDbLoaded] = useState(false)
+
+  const USER_ID = "temp_user1"; // temp user
+
+  const normalizeHorizon = (h: string) => h.endsWith("-term") ? h : `${h}-term`;
+
+  // Check if the data is up to date
+  const isToday = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    return date.getDate() === today.getDate() &&
+           date.getMonth() === today.getMonth() &&
+           date.getFullYear() === today.getFullYear();
+  };
+
+  const cleanAiData = (data: any) => {
+    if (!data || typeof data === "string") return data;
+    
+    const extractNumber = (val: any) => {
+      if (!val || val === "-" || val === "N/A") return "-";
+      const cleanNum = String(val).replace(/[^0-9.]/g, ''); 
+      return cleanNum || "-"; 
+    };
+
+    return {
+      ...data,
+      stop_loss: extractNumber(data.stop_loss),
+      target: extractNumber(data.target),
+      recommended_entry: extractNumber(data.recommended_entry)
+    };
+  };
+
+  const loadAiAnalysis = async (ticker: string, horizon: string) => {
+    const normHorizon = normalizeHorizon(horizon); 
+    const cacheId = `${ticker.toUpperCase()}_${normHorizon}`;
+
+    try {
+      const { data: cachedData } = await supabase
+        .from('ai_analysis_cache')
+        .select('*')
+        .eq('id', cacheId)
+        .single();
+
+      if (cachedData && cachedData.updated_at && isToday(cachedData.updated_at)) {
+        return cleanAiData(cachedData.analysis_data); 
+      }
+
+      const res = await fetch("http://localhost:8000/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker: ticker.toUpperCase(), horizon: normHorizon }) 
+      });
+
+      if (!res.ok) throw new Error("AI API Failed");
+      const newAnalysis = await res.json();
+      const cleanedAnalysis = cleanAiData(newAnalysis); 
+
+      await supabase
+        .from('ai_analysis_cache')
+        .upsert({
+          id: cacheId,
+          ticker: ticker.toUpperCase(),
+          horizon: normHorizon, 
+          analysis_data: cleanedAnalysis,
+          updated_at: new Date().toISOString()
+        });
+
+      return cleanedAnalysis;
+    } catch (err) {
+      console.error("❌ Error fetching AI:", err);
+      return null;
+    }
+  };
+
+  const handleGetAiAnalysis = async (ticker: string, overrideHorizon?: string) => {
+    const upperTk = ticker.toUpperCase(); 
+    setAnalyses(prev => ({ ...prev, [upperTk]: "Loading AI Analysis..." }));
+
+    const horizon = overrideHorizon || horizons[ticker] || "Mid-term"; 
+    const report = await loadAiAnalysis(ticker, horizon);
+
+    if (report) {
+      setAnalyses(prev => ({ ...prev, [upperTk]: report }));
+    } else {
+      setAnalyses(prev => ({ ...prev, [upperTk]: "Error loading AI analysis." }));
+    }
+  };
+
+  const handleHorizonChange = (ticker: string, newHorizon: string) => {
+    const normHorizon = normalizeHorizon(newHorizon); 
+    const upperTk = ticker.toUpperCase(); 
+    
+    setHorizons(prev => {
+      const next = { ...prev, [ticker]: normHorizon };
+      supabase.from('user_preferences')
+        .update({ horizons: next, updated_at: new Date().toISOString() })
+        .eq('user_id', USER_ID)
+        .then(({ error }) => { if (error) console.error("❌ เซฟ Horizon พลาด:", error); });
+      return next;
+    });
+
+    setAnalyses(prev => {
+      const next = { ...prev };
+      delete next[upperTk]; 
+      delete next[ticker];  
+      return next;
+    });
+
+    setTimeout(() => {
+      handleGetAiAnalysis(ticker, normHorizon);
+    }, 100);
+  };
+
+  const processAiQueue = async (tickers: string[], currentHorizons: Record<string, string>) => {
+    for (const id of tickers) {
+      const upperTk = id.toUpperCase(); 
+      const horizon = currentHorizons[id] || "Mid-term";
+      
+      setAnalyses(prev => ({ ...prev, [upperTk]: "Loading AI Analysis..." }));
+      
+      const report = await loadAiAnalysis(id, horizon);
+      
+      if (report) {
+        setAnalyses(prev => ({ ...prev, [upperTk]: report }));
+      } else {
+        setAnalyses(prev => ({ ...prev, [upperTk]: "Error loading AI analysis." }));
+      }
+    }
+    console.log("✅ AI Queue Processed Completely!");
+  };
+
+  const saveToDB = async (newWatchlists: Record<string, string[]>, newPinned: string[]) => {
+
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .update({ 
+         watchlists: newWatchlists, 
+         pinned_overview: newPinned,
+         updated_at: new Date().toISOString()
+      })
+      .eq('user_id', USER_ID)
+      .select(); 
+
+    if (error) console.error("❌ Save to DB error:", error.message);
+  };
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const { data, error } = await supabase
+        .from('user_preferences')
+        .select('*')
+        .eq('user_id', USER_ID)
+        .single();
+
+      if (data) {
+        if (data.watchlists) setWatchlists(data.watchlists);
+        if (data.pinned_overview) setPinnedOverview(data.pinned_overview);
+        
+        let cleanHorizons: Record<string, string> = {};
+        if (data.horizons) {
+          Object.entries(data.horizons).forEach(([k, v]) => {
+            cleanHorizons[k] = normalizeHorizon(v as string);
+          });
+          setHorizons(cleanHorizons);
+        }
+
+        const allSavedIds = new Set<string>();
+        if (data.pinned_overview) data.pinned_overview.forEach((id: string) => allSavedIds.add(id));
+        if (data.watchlists) {
+          Object.values(data.watchlists).forEach((list: any) => list.forEach((id: string) => allSavedIds.add(id)));
+        }
+
+        setMarkets(prev => {
+          const next = [...prev];
+          allSavedIds.forEach(id => {
+            if (!next.some(m => m.id === id)) {
+              const tk = id.toUpperCase();
+              next.push({
+                id: id, ticker: tk, label: tk, sector: "Global Equity",
+                price: 0, change: 0, up: true, data: {}
+              } as any);
+            }
+          });
+          return next;
+        });
+
+        processAiQueue(Array.from(allSavedIds), cleanHorizons);
+      }
+      
+      setIsDbLoaded(true);
+    };
+    
+    fetchUserData();
+  }, []);
+
+  const toggleWatch = (id: string, listName: string) => {
+    setWatchlists(prev => {
+      const next = { ...prev };
+      const list = next[listName] || [];
+      
+      if (list.includes(id)) {
+        next[listName] = list.filter(x => x !== id);
+      } else {
+        next[listName] = [...list, id];
+        setTimeout(() => {
+          handleGetAiAnalysis(id); 
+        }, 100);
+      }
+      
+      saveToDB(next, pinnedOverview); 
+      return next;
+    });
+  };
+
+  const createWatchlist = (name: string) => {
+    if (!name.trim()) return;
+    setWatchlists(prev => {
+      const next = { ...prev, [name]: prev[name] || [] };
+      saveToDB(next, pinnedOverview); 
+      return next;
+    });
+  };
+
+  const deleteWatchlist = (name: string) => {
+    setWatchlists(prev => {
+      const next = { ...prev };
+      delete next[name];
+      saveToDB(next, pinnedOverview); 
+      return next;
+    });
+  };
+
   const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
   const [markets, setMarkets] = useState<Market[]>(MARKETS);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isChartUpdating, setIsChartUpdating] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [showSearchDrop, setShowSearchDrop] = useState(false);
 
   // Chatbot parts
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -34,64 +272,16 @@ function App() {
   const [loadingAnalyses, setLoadingAnalyses] = useState<Set<string>>(new Set());
   const [horizons, setHorizons] = useState<Record<string, string>>({});
 
-  const handleHorizonChange = (ticker: string, newHorizon: string) => {
-    setHorizons(prev => ({ ...prev, [ticker]: newHorizon }));
-    setAnalyses(prev => {
-      const next = { ...prev };
-      delete next[ticker]; 
-      return next;
-    });
-  };
-  
-  // 🌟 ปิดระบบ AI ชั่วคราวตรงนี้ โดยการใส่ /* ครอบไว้ด้านบน และ */ ปิดท้ายบล็อก
-  /* useEffect(() => {
-    const fetchAnalysis = async (ticker: string) => {
-      try {
-        setLoadingAnalyses(prev => new Set(prev).add(ticker));
-        const realTicker = ticker === "SPX" ? "^GSPC" : ticker; 
-        const currentHorizon = horizons[ticker] || "Mid-term";
-
-        const response = await fetch("http://localhost:8000/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticker: realTicker, horizon: currentHorizon }) 
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setAnalyses(prev => ({ ...prev, [ticker]: data }));
-        }
-      } catch (error) {
-        console.error(`Failed to fetch analysis for ${ticker}:`, error);
-      } finally {
-        setLoadingAnalyses(prev => {
-          const next = new Set(prev);
-          next.delete(ticker);
-          return next;
-        });
-      }
-    };
-
-    watched.forEach(tickerId => {
-      const market = markets.find(m => m.id === tickerId);
-      if (market && !analyses[market.ticker] && !loadingAnalyses.has(market.ticker)) {
-        fetchAnalysis(market.ticker);
-      }
-    });
-  }, [watched, markets, horizons]);
-  */
-
   // Live ticking
-  // 🌟 โค้ดดึงข้อมูลจริง (อัปเกรด: ดึงข้อมูลจริงของหุ้น "ทุกตัว" ในระบบ)
   useEffect(() => {
+    if (!isDbLoaded) return;
+
     const fetchAllRealData = async () => {
       setIsChartUpdating(true);
-      // ใช้ Promise.all เพื่อให้ยิง API ดึงข้อมูลทุกตัวพร้อมกัน (ไม่กระตุก)
       const promises = markets.map(async (m) => {
-        let updatedM = { ...m, data: { ...m.data } }; // ก๊อปปี้ข้อมูลเดิมไว้เตรียมทับด้วยของจริง
+        let updatedM = { ...m, data: { ...m.data } }; 
         
         try {
-          // 1. ดึงข้อมูล 1D (เพื่อเอาราคาล่าสุดวันนี้ และ % เปลี่ยนแปลงรายวันแบบเป๊ะๆ)
           const res1D = await fetch("http://localhost:8000/chart", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ticker: m.ticker, period: "1D" })
@@ -106,7 +296,6 @@ function App() {
             updatedM.data["1D"] = res1D.data;
           }
 
-          // 2. ดึงข้อมูล 1W (เพื่อวาดกราฟเส้นเล็กๆ ตรงเมนู Top Movers และ Watchlist)
           const res1W = await fetch("http://localhost:8000/chart", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ticker: m.ticker, period: "1W" })
@@ -116,17 +305,15 @@ function App() {
             updatedM.data["1W"] = res1W.data;
           }
 
-          // 3. ดึงกราฟใหญ่ (ตาม Range ที่เลือก เช่น 1M, 3M) ให้เฉพาะหุ้นที่กำลังเปิดดูอยู่เท่านั้น
           if (m.id === selectedId) {
             const resRange = await fetch("http://localhost:8000/chart", {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ ticker: m.ticker, period: range })
             }).then(r => r.json());
             
-            // 🌟 เปลี่ยน 1W ให้ดึงประวัติ 1M (จะได้ความละเอียดรายชั่วโมง กราฟจะไม่เป็นเส้นตรง)
             let drawHistoryPeriod = "5Y"; 
             if (range === "1D") drawHistoryPeriod = "1W";      
-            else if (range === "1W") drawHistoryPeriod = "1W"; // <-- แก้ตรงนี้
+            else if (range === "1W") drawHistoryPeriod = "1W"; 
             else if (range === "1M") drawHistoryPeriod = "1Y"; 
             else drawHistoryPeriod = "5Y";
 
@@ -135,7 +322,6 @@ function App() {
               body: JSON.stringify({ ticker: m.ticker, period: drawHistoryPeriod })
             }).then(r => r.json());
 
-            // 🌟 2. แอบดึง 1Y แยกต่างหาก เพื่อเอาไว้คำนวณ Fib/SR/DMZ ให้เป็นของ 1 ปีเสมอ
             const res1Y = await fetch("http://localhost:8000/chart", {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ ticker: m.ticker, period: "1Y" })
@@ -143,7 +329,7 @@ function App() {
 
             if (resRange.data && resRange.data.length > 0) {
               updatedM.data[range] = resRange.data;
-              if (res1Y.data) updatedM.data["1Y"] = res1Y.data; // ยัด 1Y เก็บไว้
+              if (res1Y.data) updatedM.data["1Y"] = res1Y.data; 
               (updatedM as any).chartHistory = resHistory.data || resRange.data; 
             }
           }
@@ -153,7 +339,6 @@ function App() {
         return updatedM;
       });
 
-      // รอให้โหลดครบทุกตัว แล้วอัปเดตหน้าเว็บทีเดียว
       const newMarkets = await Promise.all(promises);
       setMarkets(newMarkets);
       setIsInitialLoad(false);
@@ -161,25 +346,14 @@ function App() {
     };
 
     fetchAllRealData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, range]);
+  }, [selectedId, range, isDbLoaded]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  const toggleWatch = (id: string) => {
-    setWatched(prev => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id); else n.add(id);
-      return n;
-    });
-  };
-
   const select = (id: string) => { setSelectedId(id); setActivePage("overview"); };
-  const watchedMarkets = markets.filter(m => watched.has(m.id));
-  const watchlistMarkets = watched.size > 0 ? watchedMarkets : markets;
   const tradeMarket = tradeTicker ? findMarket(tradeTicker, markets) : null;
 
   
@@ -236,13 +410,100 @@ function App() {
           <div className="crumb">
             <span className="slash">/</span>
             <span className="seg">{activePage}</span>
-            {activePage === "overview" && (
+            {(activePage === "overview" || activePage === "search") && (
               <>
                 <span className="slash"> / </span>
                 <span>{markets.find(m => m.id === selectedId)?.ticker}</span>
               </>
             )}
           </div>
+          
+          <div style={{ flex: 1, display: "flex", justifyContent: "center", position: "relative" }}>
+            <input
+               type="text"
+               placeholder="Search ticker or company..."
+               value={searchQ}
+               onChange={e => { setSearchQ(e.target.value); setShowSearchDrop(true); }}
+               onFocus={() => setShowSearchDrop(true)}
+               onBlur={() => setTimeout(() => setShowSearchDrop(false), 200)}
+               style={{ 
+                 width: "350px", background: "var(--bg1)", border: "1px solid var(--border)", 
+                 color: "var(--text-primary)", padding: "8px 16px", borderRadius: "20px", 
+                 fontFamily: "var(--mono)", fontSize: "12px", outline: "none" 
+               }}
+            />
+            {showSearchDrop && searchQ && (
+               <div style={{ 
+                 position: "absolute", top: "40px", width: "350px", background: "var(--bg2)", 
+                 border: "1px solid var(--border-bright)", borderRadius: "8px", zIndex: 100, 
+                 overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.8)" 
+               }}>
+                  {markets.filter(m => m.ticker.toLowerCase().includes(searchQ.toLowerCase()) || m.label.toLowerCase().includes(searchQ.toLowerCase())).map(m => (
+                     <div
+                       key={m.id}
+                       onMouseDown={() => {
+                          setSelectedId(m.id);
+                          setActivePage("search"); 
+                          setSearchQ("");
+                          setShowSearchDrop(false);
+                       }}
+                       style={{ padding: "12px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)" }}
+                       onMouseEnter={(e) => e.currentTarget.style.background = "var(--bg3)"}
+                       onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                     >
+                       <span style={{ color: "var(--green)", fontWeight: "bold" }}>{m.ticker}</span>
+                       <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>{m.label}</span>
+                     </div>
+                  ))}
+                  
+                  {!markets.some(m => m.ticker.toLowerCase() === searchQ.toLowerCase()) && (
+                     <div
+                       onMouseDown={async () => {
+                          const newId = searchQ.toLowerCase();
+                          const newTk = searchQ.toUpperCase();
+                          
+                          setSearchQ("");
+                          setShowSearchDrop(false);
+
+                          try {
+                             const res = await fetch("http://localhost:8000/chart", {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ ticker: newTk, period: "1D" }) 
+                             });
+
+                             if (!res.ok) {
+                                alert(`Cannot find data for "${newTk}" or the stock may have been delisted`);
+                                return; 
+                             }
+
+                             setMarkets(prev => [...prev, {
+                                id: newId, ticker: newTk, label: newTk, sector: "Global Equity",
+                                price: 0, change: 0, up: true, data: {}
+                             } as any]);
+                             
+                             setSelectedId(newId);
+                             setActivePage("search"); 
+
+                             setTimeout(() => {
+                               handleGetAiAnalysis(newId, "Mid-term");
+                             }, 100);
+
+                          } catch (err) {
+                             console.error("API Error:", err);
+                             alert("Error fetching data for the ticker. Please try again later.");
+                          }
+                       }}
+                       style={{ padding: "12px 16px", cursor: "pointer", color: "var(--yellow)", borderTop: "1px solid var(--border)", fontSize: "11px", fontWeight: "bold" }}
+                       onMouseEnter={(e) => e.currentTarget.style.background = "var(--bg3)"}
+                       onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                     >
+                       + SEARCH GLOBAL MARKET FOR "{searchQ.toUpperCase()}"
+                     </div>
+                  )}
+               </div>
+            )}
+          </div>
+
           <div className="header-right">
             <span className="clock">{now.toLocaleTimeString("en-US", { hour12: false })} UTC</span>
             <span className="market-status"><span className="dot live"></span>MARKET OPEN</span>
@@ -252,24 +513,51 @@ function App() {
         <div className="scroll">
           {activePage === "overview" && (
             <Overview markets={markets} selectedId={selectedId} onSelect={setSelectedId}
-                      range={range} setRange={setRange} news={NEWS} 
-                      isChartUpdating={isChartUpdating} // 🌟 3. ส่งค่าไปให้หน้า Overview
+                      range={range} setRange={setRange} news={NEWS} isChartUpdating={isChartUpdating}
+                      watchlists={watchlists} onToggleWatch={toggleWatch} onCreateWatchlist={createWatchlist}
+                      pinnedOverview={pinnedOverview} 
+              onRemovePinned={(id) => {
+                setPinnedOverview(prev => {
+                  const next = prev.filter(x => x !== id);
+                  saveToDB(watchlists, next); 
+                  return next;
+                });
+              }}
+              onPinToOverview={() => {
+                setPinnedOverview(prev => {
+                  const next = prev.includes(selectedId) ? prev : [...prev, selectedId];
+                  saveToDB(watchlists, next);
+                  return next;
+                });
+              }}
             />
           )}
+
+          {activePage === "search" && (
+            <Overview markets={markets} selectedId={selectedId} onSelect={setSelectedId}
+                      range={range} setRange={setRange} news={NEWS} isChartUpdating={isChartUpdating}
+                      isSearchMode={true} 
+                      watchlists={watchlists} onToggleWatch={toggleWatch} onCreateWatchlist={createWatchlist}
+                      pinnedOverview={pinnedOverview} 
+                      onPinToOverview={() => setPinnedOverview(prev => prev.includes(selectedId) ? prev : [...prev, selectedId])} 
+                      onGoToOverview={() => setActivePage("overview")}
+            />
+          )}
+          
           {activePage === "portfolio" && (
             <Portfolio markets={markets} holdings={HOLDINGS} transactions={TRANSACTIONS} onTrade={setTradeTicker} />
           )}
           
           {activePage === "watchlist" && (
             <Watchlist 
-               markets={watchlistMarkets} 
+               markets={markets} 
                onSelect={select} 
                onTrade={setTradeTicker}
-               watched={watched} 
-               toggleWatch={toggleWatch} 
-               analyses={analyses}
-               horizons={horizons}
-               onHorizonChange={handleHorizonChange}
+               watchlists={watchlists}
+               toggleWatch={toggleWatch}
+               onCreateWatchlist={createWatchlist}   
+               onDeleteWatchlist={deleteWatchlist}   
+               analyses={analyses} horizons={horizons} onHorizonChange={handleHorizonChange}
             />
           )}
           

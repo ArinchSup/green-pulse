@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import aimain  
 import ai_chatbot
+import asyncio
 
 app = FastAPI()
 
@@ -24,7 +25,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/analyze")
 async def analyze_stock(req: StockRequest):
-    report = aimain.run_pipeline(req.ticker, req.horizon)
+    report = await asyncio.to_thread(aimain.run_pipeline, req.ticker, req.horizon)
     return report
 
 @app.post("/chat")
@@ -61,7 +62,7 @@ async def get_chart_data(req: ChartRequest):
         hist = stock.history(**params)
         
         if hist.empty:
-            return {"data": []}
+            raise HTTPException(status_code=404, detail="Ticker not found or delisted")
             
         chart_data = []
         for i, (index, row) in enumerate(hist.iterrows()):
@@ -72,8 +73,12 @@ async def get_chart_data(req: ChartRequest):
             })
             
         return {"data": chart_data}
+    
+    except HTTPException:
+        raise 
     except Exception as e:
-        return {"error": str(e), "data": []}
+        raise HTTPException(status_code=500, detail=str(e))
+    
 
 # For running: 
 # cd src 
