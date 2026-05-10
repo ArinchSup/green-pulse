@@ -37,15 +37,20 @@ jobs:
 
       - name: Deploy via AWS SSM
         run: |
-          aws ssm send-command \
-            --instance-ids i-0bf07aa1199a37d2b \
+          INSTANCE_ID="i-0bf07aa1199a37d2b"
+          REGION="ap-southeast-1"
+
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript"  \
             --parameters 'commands=[
+            "git config --global --add safe.directory /home/ubuntu/green-pulse",
             "cd /home/ubuntu/green-pulse && git pull origin main",
             "echo FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }} > /home/ubuntu/green-pulse/.env",
-            "echo IS_LOCAL=${{ secrets.IS_LOCAL}} > /home/ubuntu/green-pulse/.env",
+            "echo IS_LOCAL=${{ secrets.IS_LOCAL }} >> /home/ubuntu/green-pulse/.env",
             "echo GRAFANA_PASSWORD=${{ secrets.GRAFANA_PASSWORD }} >> /home/ubuntu/green-pulse/.env",
-            "echo SUPABASEPASS=${{ secrets.SUPADBPASS }} >> /home/ubuntu/green-pulse/.env",
+            "echo SUPADBPASS=${{ secrets.SUPADBPASS }} >> /home/ubuntu/green-pulse/.env",
             "echo DATABASE=${{ secrets.DATABASE }} >> /home/ubuntu/green-pulse/.env",
             "echo SUPADBHOST=${{ secrets.SUPADBHOST }} >> /home/ubuntu/green-pulse/.env",
             "echo SUPADBPORT=${{ secrets.SUPADBPORT }} >> /home/ubuntu/green-pulse/.env",
@@ -54,4 +59,27 @@ jobs:
             "cd /home/ubuntu/green-pulse && sudo -u ubuntu docker compose up --build -d",
             "sudo -u ubuntu docker image prune -f"
             ]' \
-            --region ap-southeast-1
+            --region "$REGION" \
+            --query "Command.CommandId" \
+            --output text)
+
+
+            echo "Command is processing"
+            aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --region "$REGION" 
+
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --region "$REGION" \
+              --query "Status" \
+              --output text)
+
+            echo "The command is executed"
+
+            if [ "$STATUS" != "Success" ]; then
+            echo "The execution is failed"
+            exit 1;
+            fi
