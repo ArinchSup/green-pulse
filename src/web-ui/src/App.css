@@ -637,7 +637,6 @@ input { font-family: inherit; }
 .density-spacious .card { padding: 22px; margin-bottom: 22px; }
 .density-spacious .data-table tbody td { padding: 14px 14px; }
 
-<<<<<<< HEAD
 /* ─── AI Chatbot Sidebar ─── */
 .fab-button {
   position: fixed;
@@ -700,7 +699,7 @@ input { font-family: inherit; }
   border-color: var(--green);
   outline: none;
 }
-=======
+
 /* ── Login page ─────────────────────────────────────────────── */
 .login-page {
   min-height: 100vh;
@@ -777,4 +776,3 @@ input { font-family: inherit; }
 .login-btn-secondary:hover {
   background: var(--bg3);
 }
->>>>>>> f95b4cc (log in page)

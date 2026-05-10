@@ -1,277 +1,63 @@
 // src/App.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import "./App.css";
 import { Sidebar } from "./Sidebar";
 import { Overview } from "./pages/Overview";
 import { Portfolio } from "./pages/Portfolio";
 import { Watchlist } from "./pages/Watchlist";
 import { Settings } from "./pages/Settings";
+import { Login } from "./pages/Login";
 import { TradeModal } from "./TradeModal";
 import {
   MARKETS, HOLDINGS, TRANSACTIONS, NEWS, ALERTS, findMarket
 } from "./variable";
-import type { Alert, Market, RangeKey, User } from "./types";
+import type { Market, RangeKey, Alert, User } from "./types";
 
-import { supabase } from "./supabaseClient";
+const STORAGE_KEY = "gp_user";
 
 function App() {
-  const USER_ID = "temp_user1"; // temp user
-  const [user, setUser] = useState<User>({ token: "temp-token", email: "guest@local", userId: USER_ID });
+  const [user, setUser] = useState<User | null>(null);
   const [activePage, setActivePage] = useState("overview");
   const [range, setRange] = useState<RangeKey>("1M");
   const [tradeTicker, setTradeTicker] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
-  const [selectedId, setSelectedId] = useState("nvda"); 
-  
-  const [watchlists, setWatchlists] = useState<Record<string, string[]>>({});
-  const [pinnedOverview, setPinnedOverview] = useState<string[]>([]);
-  const [isDbLoaded, setIsDbLoaded] = useState(false)
-
-  const normalizeHorizon = (h: string) => h.endsWith("-term") ? h : `${h}-term`;
-
-  // Check if the data is up to date
-  const isToday = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    return date.getDate() === today.getDate() &&
-           date.getMonth() === today.getMonth() &&
-           date.getFullYear() === today.getFullYear();
-  };
-
-  const cleanAiData = (data: any) => {
-    if (!data || typeof data === "string") return data;
-    
-    const extractNumber = (val: any) => {
-      if (!val || val === "-" || val === "N/A") return "-";
-      const cleanNum = String(val).replace(/[^0-9.]/g, ''); 
-      return cleanNum || "-"; 
-    };
-
-    return {
-      ...data,
-      stop_loss: extractNumber(data.stop_loss),
-      target: extractNumber(data.target),
-      recommended_entry: extractNumber(data.recommended_entry)
-    };
-  };
-
-  const loadAiAnalysis = async (ticker: string, horizon: string) => {
-    const normHorizon = normalizeHorizon(horizon); 
-    const cacheId = `${ticker.toUpperCase()}_${normHorizon}`;
-
-    try {
-      const { data: cachedData } = await supabase
-        .from('ai_analysis_cache')
-        .select('*')
-        .eq('id', cacheId)
-        .single();
-
-      if (cachedData && cachedData.updated_at && isToday(cachedData.updated_at)) {
-        return cleanAiData(cachedData.analysis_data); 
-      }
-
-      const res = await fetch("http://localhost:8000/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker: ticker.toUpperCase(), horizon: normHorizon }) 
-      });
-
-      if (!res.ok) throw new Error("AI API Failed");
-      const newAnalysis = await res.json();
-      const cleanedAnalysis = cleanAiData(newAnalysis); 
-
-      await supabase
-        .from('ai_analysis_cache')
-        .upsert({
-          id: cacheId,
-          ticker: ticker.toUpperCase(),
-          horizon: normHorizon, 
-          analysis_data: cleanedAnalysis,
-          updated_at: new Date().toISOString()
-        });
-
-      return cleanedAnalysis;
-    } catch (err) {
-      console.error("❌ Error fetching AI:", err);
-      return null;
-    }
-  };
-
-  const handleGetAiAnalysis = async (ticker: string, overrideHorizon?: string) => {
-    const upperTk = ticker.toUpperCase(); 
-    setAnalyses(prev => ({ ...prev, [upperTk]: "Loading AI Analysis..." }));
-
-    const horizon = overrideHorizon || horizons[ticker] || "Mid-term"; 
-    const report = await loadAiAnalysis(ticker, horizon);
-
-    if (report) {
-      setAnalyses(prev => ({ ...prev, [upperTk]: report }));
-    } else {
-      setAnalyses(prev => ({ ...prev, [upperTk]: "Error loading AI analysis." }));
-    }
-  };
-
-  const handleHorizonChange = (ticker: string, newHorizon: string) => {
-    const normHorizon = normalizeHorizon(newHorizon); 
-    const upperTk = ticker.toUpperCase(); 
-    
-    setHorizons(prev => {
-      const next = { ...prev, [ticker]: normHorizon };
-      supabase.from('user_preferences')
-        .update({ horizons: next, updated_at: new Date().toISOString() })
-        .eq('user_id', USER_ID)
-        .then((result: { error: { message?: string } | null }) => { if (result.error) console.error("❌ เซฟ Horizon พลาด:", result.error); });
-      return next;
-    });
-
-    setAnalyses(prev => {
-      const next = { ...prev };
-      delete next[upperTk]; 
-      delete next[ticker];  
-      return next;
-    });
-
-    setTimeout(() => {
-      handleGetAiAnalysis(ticker, normHorizon);
-    }, 100);
-  };
-
-  const processAiQueue = async (tickers: string[], currentHorizons: Record<string, string>) => {
-    for (const id of tickers) {
-      const upperTk = id.toUpperCase(); 
-      const horizon = currentHorizons[id] || "Mid-term";
-      
-      setAnalyses(prev => ({ ...prev, [upperTk]: "Loading AI Analysis..." }));
-      
-      const report = await loadAiAnalysis(id, horizon);
-      
-      if (report) {
-        setAnalyses(prev => ({ ...prev, [upperTk]: report }));
-      } else {
-        setAnalyses(prev => ({ ...prev, [upperTk]: "Error loading AI analysis." }));
-      }
-    }
-    console.log("✅ AI Queue Processed Completely!");
-  };
-
-  const saveToDB = async (newWatchlists: Record<string, string[]>, newPinned: string[]) => {
-    const { error } = await supabase
-      .from('user_preferences')
-      .update({ 
-         watchlists: newWatchlists, 
-         pinned_overview: newPinned,
-         updated_at: new Date().toISOString()
-      })
-      .eq('user_id', USER_ID);
-
-    if (error) console.error("❌ Save to DB error:", error.message);
-  };
-
-  useEffect(() => {
-    const fetchUserData = async () => {
-      const { data: userData, error } = await supabase
-        .from('user_preferences')
-        .select('*')
-        .eq('user_id', USER_ID)
-        .single();
-
-      if (error) {
-        console.error("❌ Load user data error:", error.message);
-      }
-
-      if (userData) {
-        if (userData.watchlists) setWatchlists(userData.watchlists);
-        if (userData.pinned_overview) setPinnedOverview(userData.pinned_overview);
-        
-        let cleanHorizons: Record<string, string> = {};
-        if (userData.horizons) {
-          Object.entries(userData.horizons).forEach(([k, v]) => {
-            cleanHorizons[k] = normalizeHorizon(v as string);
-          });
-          setHorizons(cleanHorizons);
-        }
-
-        const allSavedIds = new Set<string>();
-        if (userData.pinned_overview) userData.pinned_overview.forEach((id: string) => allSavedIds.add(id));
-        if (userData.watchlists) {
-          Object.values(userData.watchlists).forEach((list: any) => list.forEach((id: string) => allSavedIds.add(id)));
-        }
-
-        setMarkets(prev => {
-          const next = [...prev];
-          allSavedIds.forEach(id => {
-            if (!next.some(m => m.id === id)) {
-              const tk = id.toUpperCase();
-              next.push({
-                id: id, ticker: tk, label: tk, sector: "Global Equity",
-                price: 0, change: 0, up: true, data: {}
-              } as any);
-            }
-          });
-          return next;
-        });
-
-        processAiQueue(Array.from(allSavedIds), cleanHorizons);
-      }
-      
-      setIsDbLoaded(true);
-    };
-    
-    fetchUserData();
-  }, []);
-
-  const toggleWatch = (id: string, listName: string) => {
-    setWatchlists(prev => {
-      const next = { ...prev };
-      const list = next[listName] || [];
-      
-      if (list.includes(id)) {
-        next[listName] = list.filter(x => x !== id);
-      } else {
-        next[listName] = [...list, id];
-        setTimeout(() => {
-          handleGetAiAnalysis(id); 
-        }, 100);
-      }
-      
-      saveToDB(next, pinnedOverview); 
-      return next;
-    });
-  };
-
-  const createWatchlist = (name: string) => {
-    if (!name.trim()) return;
-    setWatchlists(prev => {
-      const next = { ...prev, [name]: prev[name] || [] };
-      saveToDB(next, pinnedOverview); 
-      return next;
-    });
-  };
-
-  const deleteWatchlist = (name: string) => {
-    setWatchlists(prev => {
-      const next = { ...prev };
-      delete next[name];
-      saveToDB(next, pinnedOverview); 
-      return next;
-    });
-  };
-
+  const [watched, setWatched] = useState<Set<string>>(new Set());
   const [alerts, setAlerts] = useState<Alert[]>(ALERTS);
   const [markets, setMarkets] = useState<Market[]>(MARKETS);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [isChartUpdating, setIsChartUpdating] = useState(false);
-  const [searchQ, setSearchQ] = useState("");
-  const [showSearchDrop, setShowSearchDrop] = useState(false);
 
-  // Chatbot parts
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatHistory, setChatHistory] = useState<{role: string, content: string}[]>([]);
-  const [isChatLoading, setIsChatLoading] = useState(false);
+  // Resolve auth from OAuth redirect params or persisted session
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    const email = params.get("email");
+    const userId = params.get("user_id");
 
-  // Ai parts
-  const [analyses, setAnalyses] = useState<Record<string, any>>({});
-  const [horizons, setHorizons] = useState<Record<string, string>>({});
+    if (token && email && userId) {
+      const u: User = { token, email, userId };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(u));
+      setUser(u);
+      window.history.replaceState({}, "", window.location.pathname);
+    } else {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        try { setUser(JSON.parse(stored)); } catch { localStorage.removeItem(STORAGE_KEY); }
+      }
+    }
+  }, []);
+
+  // Load favorites from backend whenever user changes
+  useEffect(() => {
+    if (!user) return;
+    fetch(`http://localhost:8080/favorites?user_id=${user.userId}`)
+      .then(r => r.json())
+      .then((data: { symbol: string }[]) => {
+        const symbols = new Set(data.map(d => d.symbol.toUpperCase()));
+        setWatched(new Set(
+          MARKETS.filter(m => symbols.has(m.ticker.toUpperCase())).map(m => m.id)
+        ));
+      })
+      .catch(() => {});
+  }, [user]);
 
   // Live ticking
   useEffect(() => {
@@ -353,6 +139,33 @@ function App() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    setUser(null);
+    setWatched(new Set());
+  }, []);
+
+  const toggleWatch = useCallback(async (id: string) => {
+    if (!user) return;
+    const market = markets.find(m => m.id === id);
+    if (!market) return;
+    const isWatched = watched.has(id);
+    const method = isWatched ? "DELETE" : "POST";
+    try {
+      await fetch(
+        `http://localhost:8080/favorites?user_id=${user.userId}&symbol=${encodeURIComponent(market.ticker)}`,
+        { method }
+      );
+    } catch { /* optimistic update proceeds regardless */ }
+    setWatched(prev => {
+      const n = new Set(prev);
+      isWatched ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }, [user, markets, watched]);
+
+  if (!user) return <Login />;
 
   const select = (id: string) => { setSelectedId(id); setActivePage("overview"); };
   const logout = () => {
