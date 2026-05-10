@@ -12,10 +12,22 @@ const Stat = ({ label, value, tone }: { label: string; value: string; tone?: "up
   </div>
 );
 
-export const Overview = ({ markets, selectedId, onSelect, range, setRange, news, isChartUpdating }: {
+export const Overview = ({ 
+  markets, selectedId, onSelect, range, setRange, news, isChartUpdating,
+  isSearchMode = false, watchlists = {}, onToggleWatch, onCreateWatchlist, onGoToOverview,
+  pinnedOverview, onRemovePinned, onPinToOverview 
+}: {
   markets: Market[]; selectedId: string; onSelect: (id: string) => void;
   range: RangeKey; setRange: (r: RangeKey) => void; news: NewsItem[];
   isChartUpdating?: boolean; 
+  isSearchMode?: boolean;           
+  watchlists?: Record<string, string[]>;                 
+  onToggleWatch?: (id: string, listName: string) => void;
+  onCreateWatchlist?: (name: string) => void;            
+  onGoToOverview?: () => void;
+  pinnedOverview?: string[];                  
+  onRemovePinned?: (id: string) => void;      
+  onPinToOverview?: () => void;               
 }) => {
   const m = markets.find(x => x.id === selectedId) || markets[0];
 
@@ -23,35 +35,27 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
   const [showSR, setShowSR] = useState(false);
   const [showDMZ, setShowDMZ] = useState(false);
   
+  const [selectedList, setSelectedList] = useState("Favorites"); 
+  const [newListName, setNewListName] = useState("");           
+  
   const calcSeries = m.data[range] || []; 
   const history = (m as any).chartHistory;
-  
-  // 🌟 ใช้ประวัติความละเอียดสูงวาดกราฟ (1D, 1W จะกลับมาละเอียดเหมือนเดิมและซูมได้)
+
   const drawSeries = history && history.length > 0 ? history : calcSeries;
-  
-  // 🌟 บังคับใช้ข้อมูล 1Y สำหรับคำนวณ Fib/SR/DMZ เสมอ (แยกส่วนกับตัววาดกราฟ)
   const refSeries = m.data["1Y"] && m.data["1Y"].length > 0 ? m.data["1Y"] : drawSeries; 
   
   let focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
 
-  // สำหรับ 1D ให้หากราฟวันล่าสุดที่ตลาดเปิด
   if (range === "1D" && drawSeries.length > 0) {
     const lastDate = String(drawSeries[drawSeries.length - 1].t).split(" ")[0];
     const firstCandleOfDay = drawSeries.find((d: any) => String(d.t).startsWith(lastDate));
     if (firstCandleOfDay) focusStartT = firstCandleOfDay.t;
   }
 
-  // 🌟 High/Low สำหรับตีกรอบ Fib และ SR ใช้ refSeries (กรอบ 1Y แน่นอน)
-  const high = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
-  const low  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
-  
-  // 🌟 1. ใช้ refSeries (1Y) สำหรับคำนวณ Fib และแนวรับแนวต้าน
   const fibHigh = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
   const fibLow  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
   const fibRng  = fibHigh - fibLow;
-  const refLast = refSeries.length > 0 ? refSeries[refSeries.length - 1].value : 1;
 
-  // 🌟 2. ใช้ calcSeries (ข้อมูลปัจจุบัน) สำหรับแสดง Stats ด้านล่าง (แก้กราฟ 1W แบนราบ)
   const statHigh = calcSeries.length > 0 ? Math.max(...calcSeries.map((d: any) => d.value)) : 0;
   const statLow  = calcSeries.length > 0 ? Math.min(...calcSeries.map((d: any) => d.value)) : 0;
   const statRng  = statHigh - statLow;
@@ -66,7 +70,6 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
   
   const demandZone = showDMZ ? [fibLow, dmzTop] as [number, number] : undefined;
 
-  // 🌟 ลอจิก AI หาเส้น Fib ที่ใกล้ราคาปัจจุบันที่สุด (ตามสูตร Shay)
   const fib38 = fibLow + fibRng * 0.382;
   const fib61 = fibLow + fibRng * 0.618;
   const fib78 = fibLow + fibRng * 0.786;
@@ -88,7 +91,6 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
     { label: "100.0%", value: fibHigh, color: "#ff9800" }
   ] as any : undefined;
 
-  // 🌟 แก้ S/R ให้คำนวณจาก Timeframe ปัจจุบัน (statHigh, statLow) แทน 1Y เพื่อไม่ให้เส้นหลุดจอ
   const P = (statHigh + statLow + last) / 3;
   const srLevels = showSR ? [
     { label: "RES2", value: P + statRng * 0.618, color: "#ff4466" },
@@ -102,19 +104,34 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
 
   return (
     <div className="page">
-      <div className="ticker-strip">
-        {markets.map(t => (
-          <button key={t.id} onClick={() => onSelect(t.id)} className={`ticker-cell ${t.id === selectedId ? "active" : ""}`}>
-            <div className="tk-label">{t.ticker}</div>
-            <div className="tk-price">{fmtPrice(t.price)}</div>
-            <div className={t.up ? "tk-chg up" : "tk-chg down"}>{t.up ? "▲" : "▼"} {fmtPct(t.change)}</div>
-          </button>
-        ))}
-      </div>
+      {!isSearchMode && (
+        <div className="ticker-strip" style={{ display: "flex", overflowX: "auto", flexWrap: "nowrap", paddingBottom: "8px", gap: "12px", scrollbarWidth: "thin" }}>
+          {markets.filter(t => !pinnedOverview || pinnedOverview.includes(t.id)).map(t => (
+            
+            <div key={t.id} onClick={() => onSelect(t.id)} className={`ticker-cell ${t.id === selectedId ? "active" : ""}`} style={{ position: "relative", minWidth: "150px", cursor: "pointer", flexShrink: 0 }}>
+              
+              {markets.filter(m => !pinnedOverview || pinnedOverview.includes(m.id)).length > 1 && (
+                <div 
+                  onClick={(e) => { e.stopPropagation(); onRemovePinned?.(t.id); }}
+                  style={{ position: "absolute", top: "4px", right: "8px", color: "var(--red)", fontSize: "16px", fontWeight: "bold", cursor: "pointer", opacity: 0.6, zIndex: 2 }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                  onMouseLeave={e => e.currentTarget.style.opacity = "0.6"}
+                >
+                  ×
+                </div>
+              )}
+
+              <div className="tk-label">{t.ticker}</div>
+              <div className="tk-price">{fmtPrice(t.price)}</div>
+              <div className={t.up ? "tk-chg up" : "tk-chg down"}>{t.up ? "▲" : "▼"} {fmtPct(t.change)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="grid-main">
         <div className="card chart-card" style={{ minWidth: 0 }}>
           
-          {/* === 1. ส่วนหัว (ชื่อหุ้น, ราคา, ปุ่มเวลา) === */}
           <div className="chart-header">
             <div>
               <div className="chart-meta">
@@ -128,16 +145,14 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
                   {m.up ? "▲" : "▼"} {fmtPct(m.change)} <span className="chg-sub">today</span>
                 </div>
               </div>
+            </div> 
+
             <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-              
-              {/* กลุ่มปุ่ม Technical Indicators */}
               <div className="time-buttons" style={{ background: "var(--bg1)", border: "1px solid var(--border)" }}>
                 <button onClick={() => setShowFib(!showFib)} className="time-btn" style={{ color: showFib ? "#ff9800" : "var(--text-muted)" }}>FIB</button>
                 <button onClick={() => setShowSR(!showSR)} className="time-btn" style={{ color: showSR ? "#00e5ff" : "var(--text-muted)" }}>R/S</button>
                 <button onClick={() => setShowDMZ(!showDMZ)} className="time-btn" style={{ color: showDMZ ? "#b088f5" : "var(--text-muted)" }}>DMZ</button>
               </div>
-
-              {/* กลุ่มปุ่ม Timeframe เดิม */}
               <div className="time-buttons">
                 {RANGE_KEYS.map(t => (
                   <button key={t} onClick={() => setRange(t)} className={`time-btn ${t === range ? "active" : ""}`}>{t}</button>
@@ -145,12 +160,8 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
               </div>
             </div>
           </div>
-          </div>
 
-          {/* === 2. กล่องแสดงกราฟ (จะตกลงมาอยู่ด้านล่างอย่างสวยงาม) === */}
           <div className="chart-container" style={{ position: "relative", width: "100%", minWidth: 0, overflow: "hidden" }}>
-            
-            {/* Overlay ตอนโหลด */}
             {isChartUpdating && (
               <div style={{
                 position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
@@ -162,11 +173,10 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
               </div>
             )}
 
-            {/* ถ้ามีข้อมูลให้วาดกราฟ */}
             {drawSeries.length > 0 ? (
               <>
                  <LineChart 
-                   key={range} // 🌟 บังคับกราฟรีเซ็ตจอ 100% เมื่อเปลี่ยน Timeframe
+                   key={range} 
                    data={drawSeries} 
                    focusStartT={focusStartT}
                    focusLength={calcSeries.length}
@@ -177,7 +187,6 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
                    srLevels={srLevels} 
                    demandZone={demandZone}
                  />
-                 
                  <div className="chart-stats" style={{ marginTop: "16px" }}>
                    <Stat label="Open" value={`$${fmtPrice(open)}`} />
                    <Stat label="High" value={`$${fmtPrice(statHigh)}`} />
@@ -194,41 +203,95 @@ export const Overview = ({ markets, selectedId, onSelect, range, setRange, news,
             )}
           </div>
         </div>
+
         <div className="right-col">
-          <div className="card">
-            <div className="card-title">Top Movers</div>
-            <div className="movers">
-              {movers.map(t => (
-                <div key={t.id} className="mover-row" onClick={() => onSelect(t.id)}>
-                  <div>
-                    <div className="mover-tk">{t.ticker}</div>
-                    <div className="mover-name">{t.label}</div>
-                  </div>
-                  <Sparkline data={t.data["1D"]} up={t.up} width={64} height={22} />
-                  <div className="mover-right">
-                    <div className="mover-price">${fmtPrice(t.price)}</div>
-                    <div className={t.up ? "mover-chg up" : "mover-chg down"}>{fmtPct(t.change)}</div>
-                  </div>
+          {isSearchMode ? (
+            <div className="card">
+              <div className="card-title">Search Actions</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "20px" }}>
+                
+                <div style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--mono)" }}>SELECT TOPIC:</div>
+                <select
+                  value={selectedList}
+                  onChange={e => setSelectedList(e.target.value)}
+                  style={{ padding: "10px", background: "var(--bg1)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: "4px", outline: "none", fontFamily: "var(--mono)" }}
+                >
+                  {Object.keys(watchlists).map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+
+                <button onClick={() => onToggleWatch?.(selectedId, selectedList)} style={{
+                    padding: "14px", background: watchlists[selectedList]?.includes(selectedId) ? "var(--bg2)" : "rgba(0, 212, 106, 0.15)",
+                    color: watchlists[selectedList]?.includes(selectedId) ? "var(--text-secondary)" : "var(--green)",
+                    border: `1px solid ${watchlists[selectedList]?.includes(selectedId) ? "var(--border)" : "var(--green)"}`,
+                    borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontFamily: "var(--mono)", transition: "all 0.2s"
+                }}>
+                  {watchlists[selectedList]?.includes(selectedId) ? `★ REMOVE FROM ${selectedList.toUpperCase()}` : `☆ ADD TO ${selectedList.toUpperCase()}`}
+                </button>
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+                  <input
+                    value={newListName}
+                    onChange={e => setNewListName(e.target.value)}
+                    placeholder="Create new topic..."
+                    style={{ flex: 1, padding: "10px", background: "var(--bg0)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: "4px", fontSize: "12px", outline: "none" }}
+                  />
+                  <button
+                    onClick={() => { if(newListName && onCreateWatchlist){ onCreateWatchlist(newListName); setSelectedList(newListName); setNewListName(""); } }}
+                    style={{ padding: "0 16px", background: "var(--bg2)", color: "var(--text-primary)", border: "1px solid var(--border)", cursor: "pointer", borderRadius: "4px", fontWeight: "bold" }}
+                  >
+                    NEW
+                  </button>
                 </div>
-              ))}
+
+                <hr style={{ border: "none", borderTop: "1px dashed var(--border)", margin: "12px 0" }} />
+
+                <button onClick={() => { onPinToOverview?.(); onGoToOverview?.(); }} style={{
+                    padding: "14px", background: "var(--bg2)", color: "var(--text-primary)",
+                    border: "1px solid var(--border)", borderRadius: "6px", cursor: "pointer",
+                    fontWeight: "bold", fontFamily: "var(--mono)", transition: "all 0.2s"
+                }}>
+                  {pinnedOverview?.includes(selectedId) ? "📊 ALREADY PINNED" : "📊 PIN TO OVERVIEW"}
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="card">
-            <div className="card-title">Market Pulse</div>
-            <div className="pulse-grid">
-              {/* 🌟 เปลี่ยนจาก indices เป็น otherStocks */}
-              {otherStocks.slice(0, 4).map(t => (
-                <div key={t.id} className="pulse-cell" onClick={() => onSelect(t.id)}>
-                  <div className="pulse-label">{t.ticker}</div>
-                  <div className="pulse-price">${fmtPrice(t.price)}</div>
-                  <Sparkline data={t.data["1W"]} up={t.up} width="100%" height={28} />
-                  <div className={t.up ? "pulse-chg up" : "pulse-chg down"}>{fmtPct(t.change)}</div>
+          ) : (
+            <>
+              <div className="card">
+                <div className="card-title">Top Movers</div>
+                <div className="movers">
+                  {movers.map(t => (
+                    <div key={t.id} className="mover-row" onClick={() => onSelect(t.id)}>
+                      <div>
+                        <div className="mover-tk">{t.ticker}</div>
+                        <div className="mover-name">{t.label}</div>
+                      </div>
+                      <Sparkline data={t.data["1D"]} up={t.up} width={64} height={22} />
+                      <div className="mover-right">
+                        <div className="mover-price">${fmtPrice(t.price)}</div>
+                        <div className={t.up ? "mover-chg up" : "mover-chg down"}>{fmtPct(t.change)}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+              <div className="card">
+                <div className="card-title">Market Pulse</div>
+                <div className="pulse-grid">
+                  {otherStocks.slice(0, 4).map(t => (
+                    <div key={t.id} className="pulse-cell" onClick={() => onSelect(t.id)}>
+                      <div className="pulse-label">{t.ticker}</div>
+                      <div className="pulse-price">${fmtPrice(t.price)}</div>
+                      <Sparkline data={t.data["1W"]} up={t.up} width="100%" height={28} />
+                      <div className={t.up ? "pulse-chg up" : "pulse-chg down"}>{fmtPct(t.change)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
+
       <div className="card news-card">
         <div className="card-title">
           <span>Newswire</span>
