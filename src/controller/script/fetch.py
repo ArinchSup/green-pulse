@@ -20,7 +20,7 @@ def fetch_and_push(symbol, db_url, db_password, region):
         'Volume', 'Dividends', 'Stock Splits'
     ]].values.tolist()
     encoded_password = quote(db_password, safe='')
-    conn_str = f"postgres://postgres.apbkobhfnmcqqzqeeqss:{encoded_password}@aws-0-{region}.pooler.supabase.com:5432/postgres"
+    conn_str = f"postgres://postgres.{db_url}:{encoded_password}@aws-1-{region}.pooler.supabase.com:5432/postgres"
     conn = None
     cur = None
 

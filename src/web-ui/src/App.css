@@ -637,6 +637,7 @@ input { font-family: inherit; }
 .density-spacious .card { padding: 22px; margin-bottom: 22px; }
 .density-spacious .data-table tbody td { padding: 14px 14px; }
 
+<<<<<<< HEAD
 /* ─── AI Chatbot Sidebar ─── */
 .fab-button {
   position: fixed;
@@ -699,3 +700,81 @@ input { font-family: inherit; }
   border-color: var(--green);
   outline: none;
 }
+=======
+/* ── Login page ─────────────────────────────────────────────── */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg0);
+}
+
+.login-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 48px 40px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.login-logo {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--green);
+  letter-spacing: -0.5px;
+}
+
+.login-tagline {
+  color: var(--dim);
+  font-size: 12px;
+  margin-top: -12px;
+}
+
+.login-divider {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+.login-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid var(--border);
+  transition: background 0.15s, border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.login-btn-primary {
+  background: var(--green);
+  color: #0a0f0a;
+  border-color: var(--green);
+}
+
+.login-btn-primary:hover {
+  background: #6ee7a0;
+  border-color: #6ee7a0;
+}
+
+.login-btn-secondary {
+  background: transparent;
+  color: var(--text);
+}
+
+.login-btn-secondary:hover {
+  background: var(--bg3);
+}
+>>>>>>> f95b4cc (log in page)

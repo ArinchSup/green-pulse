@@ -32,7 +32,7 @@ func InitConfig() {
 	ConfigAuth = &auth.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		RedirectURL:  "http://localhost:8080/callback",
+		RedirectURL:  strings.TrimSpace(os.Getenv("REDIRECT_URL")),
 		Scopes:       []string{"https://www.googleapis.com/auth/userinfo.email"},
 		Endpoint:     authG.Endpoint,
 	}
@@ -98,7 +98,7 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := "http://127.0.0.1:5500/src/controller/frontendtest/index.html"
+	frontendURL := strings.TrimSpace(os.Getenv("FRONTEND_URL"))
 
 	if state == stateSignup {
 		existingID, err := GetGoogleUserID(googleUser.ID)
@@ -108,20 +108,21 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		var signupID string
 		if existingID != "" {
-			http.Redirect(w, r, frontendURL+"?signup_status=exists&email="+url.QueryEscape(googleUser.Email), http.StatusSeeOther)
-			return
+			signupID = existingID
+		} else {
+			newID, err := CreateGoogleUser(googleUser.ID, googleUser.Email)
+			if err != nil {
+				log.Printf("database create error: %v", err)
+				http.Error(w, "Failed to create user", http.StatusInternalServerError)
+				return
+			}
+			log.Printf("New user signed up with internal id: %s", newID)
+			signupID = newID
 		}
 
-		newID, err := CreateGoogleUser(googleUser.ID, googleUser.Email)
-		if err != nil {
-			log.Printf("database create error: %v", err)
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
-			return
-		}
-
-		log.Printf("User signed up with internal id: %s", newID)
-		http.Redirect(w, r, frontendURL+"?signup_status=complete&email="+url.QueryEscape(googleUser.Email), http.StatusSeeOther)
+		http.Redirect(w, r, frontendURL+"?token="+url.QueryEscape(token.AccessToken)+"&email="+url.QueryEscape(googleUser.Email)+"&user_id="+url.QueryEscape(signupID), http.StatusSeeOther)
 		return
 	}
 

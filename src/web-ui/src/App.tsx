@@ -10,11 +10,13 @@ import { TradeModal } from "./TradeModal";
 import {
   MARKETS, HOLDINGS, TRANSACTIONS, NEWS, ALERTS, findMarket
 } from "./variable";
-import type { Market, RangeKey, Alert } from "./types";
+import type { Alert, Market, RangeKey, User } from "./types";
 
 import { supabase } from "./supabaseClient";
 
 function App() {
+  const USER_ID = "temp_user1"; // temp user
+  const [user, setUser] = useState<User>({ token: "temp-token", email: "guest@local", userId: USER_ID });
   const [activePage, setActivePage] = useState("overview");
   const [range, setRange] = useState<RangeKey>("1M");
   const [tradeTicker, setTradeTicker] = useState<string | null>(null);
@@ -24,8 +26,6 @@ function App() {
   const [watchlists, setWatchlists] = useState<Record<string, string[]>>({});
   const [pinnedOverview, setPinnedOverview] = useState<string[]>([]);
   const [isDbLoaded, setIsDbLoaded] = useState(false)
-
-  const USER_ID = "temp_user1"; // temp user
 
   const normalizeHorizon = (h: string) => h.endsWith("-term") ? h : `${h}-term`;
 
@@ -120,7 +120,7 @@ function App() {
       supabase.from('user_preferences')
         .update({ horizons: next, updated_at: new Date().toISOString() })
         .eq('user_id', USER_ID)
-        .then(({ error }) => { if (error) console.error("❌ เซฟ Horizon พลาด:", error); });
+        .then((result: { error: { message?: string } | null }) => { if (result.error) console.error("❌ เซฟ Horizon พลาด:", result.error); });
       return next;
     });
 
@@ -155,44 +155,46 @@ function App() {
   };
 
   const saveToDB = async (newWatchlists: Record<string, string[]>, newPinned: string[]) => {
-
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('user_preferences')
       .update({ 
          watchlists: newWatchlists, 
          pinned_overview: newPinned,
          updated_at: new Date().toISOString()
       })
-      .eq('user_id', USER_ID)
-      .select(); 
+      .eq('user_id', USER_ID);
 
     if (error) console.error("❌ Save to DB error:", error.message);
   };
 
   useEffect(() => {
     const fetchUserData = async () => {
-      const { data, error } = await supabase
+      const { data: userData, error } = await supabase
         .from('user_preferences')
         .select('*')
         .eq('user_id', USER_ID)
         .single();
 
-      if (data) {
-        if (data.watchlists) setWatchlists(data.watchlists);
-        if (data.pinned_overview) setPinnedOverview(data.pinned_overview);
+      if (error) {
+        console.error("❌ Load user data error:", error.message);
+      }
+
+      if (userData) {
+        if (userData.watchlists) setWatchlists(userData.watchlists);
+        if (userData.pinned_overview) setPinnedOverview(userData.pinned_overview);
         
         let cleanHorizons: Record<string, string> = {};
-        if (data.horizons) {
-          Object.entries(data.horizons).forEach(([k, v]) => {
+        if (userData.horizons) {
+          Object.entries(userData.horizons).forEach(([k, v]) => {
             cleanHorizons[k] = normalizeHorizon(v as string);
           });
           setHorizons(cleanHorizons);
         }
 
         const allSavedIds = new Set<string>();
-        if (data.pinned_overview) data.pinned_overview.forEach((id: string) => allSavedIds.add(id));
-        if (data.watchlists) {
-          Object.values(data.watchlists).forEach((list: any) => list.forEach((id: string) => allSavedIds.add(id)));
+        if (userData.pinned_overview) userData.pinned_overview.forEach((id: string) => allSavedIds.add(id));
+        if (userData.watchlists) {
+          Object.values(userData.watchlists).forEach((list: any) => list.forEach((id: string) => allSavedIds.add(id)));
         }
 
         setMarkets(prev => {
@@ -269,7 +271,6 @@ function App() {
 
   // Ai parts
   const [analyses, setAnalyses] = useState<Record<string, any>>({});
-  const [loadingAnalyses, setLoadingAnalyses] = useState<Set<string>>(new Set());
   const [horizons, setHorizons] = useState<Record<string, string>>({});
 
   // Live ticking
@@ -354,6 +355,10 @@ function App() {
   }, []);
 
   const select = (id: string) => { setSelectedId(id); setActivePage("overview"); };
+  const logout = () => {
+    setUser({ token: "temp-token", email: "guest@local", userId: USER_ID });
+    setActivePage("overview");
+  };
   const tradeMarket = tradeTicker ? findMarket(tradeTicker, markets) : null;
 
   
@@ -562,7 +567,7 @@ function App() {
           )}
           
           {activePage === "settings" && (
-            <Settings alerts={alerts} setAlerts={setAlerts} />
+            <Settings alerts={alerts} setAlerts={setAlerts} user={user} onLogout={logout} />
           )}
         </div>
       </div>
