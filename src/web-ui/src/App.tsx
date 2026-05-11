@@ -29,13 +29,16 @@ function App() {
 
   const normalizeHorizon = (h: string) => h.endsWith("-term") ? h : `${h}-term`;
 
-  // Check if the data is up to date
-  const isToday = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    return date.getDate() === today.getDate() &&
-           date.getMonth() === today.getMonth() &&
-           date.getFullYear() === today.getFullYear();
+  const isCacheValid = (dateString: string) => {
+    const savedDate = new Date(dateString);
+    const now = new Date();
+    const resetTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 20, 0, 0);
+
+    if (now < resetTime) {
+      resetTime.setDate(resetTime.getDate() - 1);
+    }
+
+    return savedDate >= resetTime;
   };
 
   const cleanAiData = (data: any) => {
@@ -66,8 +69,8 @@ function App() {
         .eq('id', cacheId)
         .single();
 
-      if (cachedData && cachedData.updated_at && isToday(cachedData.updated_at)) {
-        return cleanAiData(cachedData.analysis_data); 
+      if (cachedData && cachedData.updated_at && isCacheValid(cachedData.updated_at)) {
+        return cleanAiData(cachedData.analysis_data);
       }
 
       const res = await fetch("http://localhost:8000/analyze", {
