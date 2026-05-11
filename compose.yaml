@@ -7,11 +7,11 @@ services:
       - chroma-data:/chroma/chroma
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8001"]
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8000"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 20s
 
 
   ollama:
@@ -50,11 +50,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/openapi.json"]
-      interval: 5s
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8001"]
+      interval: 10s
       timeout: 5s
-      retries: 2
-      start_period: 10s
+      retries: 5
+      start_period: 30s
       
   
   backend:
