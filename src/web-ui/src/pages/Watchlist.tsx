@@ -1,15 +1,102 @@
 // src/pages/Watchlist.tsx
-import React, { useMemo, useState, useEffect } from "react"; 
-import { Sparkline } from "../primitives";
+import React, { useEffect, useMemo, useState } from "react";
+import { LineChart, Sparkline } from "../primitives";
 import { fmtPrice, fmtPct } from "../format";
-import { LineChart } from "../primitives";
 import { RANGE_KEYS } from "../variable";
-import type { Market, RangeKey, PricePoint } from "../types";
+import type { Market, PricePoint, RangeKey } from "../types";
+
+// ── AI Analysis panel (self-fetching) ───────────────────────────────────────
+
+const AIAnalysisPanel = ({ ticker, horizon }: { ticker: string; horizon: string }) => {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    setLoading(true); setError(false); setData(null);
+    fetch("http://localhost:8000/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker, horizon }),
+    })
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(json => { setData(json); setLoading(false); })
+      .catch(() => { setError(true); setLoading(false); });
+  }, [ticker, horizon]);
+
+  const mono: React.CSSProperties = { fontFamily: "var(--mono)", fontSize: "11px" };
+  const label: React.CSSProperties = { ...mono, color: "var(--text-secondary)" };
+  const muted: React.CSSProperties = { ...mono, color: "var(--text-muted)", fontSize: "10px", letterSpacing: "1px", textTransform: "uppercase" as const, marginBottom: "8px" };
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text-muted)", ...mono }}>
+      <span style={{ color: "var(--green)", animation: "pulse 1.4s ease-in-out infinite" }}>●</span> ANALYZING...
+    </div>
+  );
+  if (error) return (
+    <div style={{ color: "var(--down)", ...mono }}>AI service unavailable — make sure port 8000 is running</div>
+  );
+
+  const ai = data?.ai_analysis;
+  const action: string = ai?.action ?? "—";
+  const actionColor = action === "BUY" ? "var(--up)" : action === "SELL" ? "var(--down)" : "var(--text-secondary)";
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+      {/* Trade setup */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div style={muted}>Trade Setup</div>
+        <div style={{ display: "flex", justifyContent: "space-between", ...mono }}>
+          <span style={label}>Signal</span>
+          <span style={{ color: actionColor, fontWeight: "bold" }}>{action}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", ...mono }}>
+          <span style={label}>Confidence</span>
+          <span style={{ color: "var(--text-primary)" }}>{ai?.confidence_score != null ? `${ai.confidence_score}%` : "—"}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", ...mono }}>
+          <span style={label}>Entry</span>
+          <span style={{ color: "var(--text-primary)" }}>{ai?.recommended_entry_price ?? "—"}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", ...mono }}>
+          <span style={label}>Target</span>
+          <span style={{ color: "var(--up)" }}>{ai?.target_price ?? "—"}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", ...mono }}>
+          <span style={label}>Stop Loss</span>
+          <span style={{ color: "var(--down)" }}>{ai?.stop_loss ?? "—"}</span>
+        </div>
+      </div>
+
+      {/* Rationale */}
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={muted}>Quant AI Rationale</div>
+        <div className="scroll" style={{ fontSize: "12px", color: "var(--text-primary)", lineHeight: "1.6", maxHeight: "130px", overflowY: "auto", paddingRight: "8px", whiteSpace: "pre-wrap" }}>
+          {ai?.analysis?.rationale ?? "No rationale provided."}
+          {ai?.analysis?.technical_view && (
+            <div style={{ marginTop: "10px" }}>
+              <div style={{ ...mono, color: "var(--text-secondary)", marginBottom: "4px" }}>TECHNICAL:</div>
+              {ai.analysis.technical_view}
+            </div>
+          )}
+          {ai?.analysis?.fundamental_view && (
+            <div style={{ marginTop: "10px" }}>
+              <div style={{ ...mono, color: "var(--text-secondary)", marginBottom: "4px" }}>FUNDAMENTAL:</div>
+              {ai.analysis.fundamental_view}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Watchlist chart (self-fetching) ─────────────────────────────────────────
 
 const WatchlistChart = ({ market }: { market: Market }) => {
   const [range, setRange] = useState<RangeKey>("1W");
   const [localSeries, setLocalSeries] = useState<PricePoint[]>(market.data["1W"] || []);
-  const [historySeries, setHistorySeries] = useState<PricePoint[]>([]); 
+  const [historySeries, setHistorySeries] = useState<PricePoint[]>([]);
   const [showFib, setShowFib] = useState(false);
   const [showSR, setShowSR] = useState(false);
   const [showDMZ, setShowDMZ] = useState(false);
@@ -17,79 +104,50 @@ const WatchlistChart = ({ market }: { market: Market }) => {
   const [refSeries1Y, setRefSeries1Y] = useState<PricePoint[]>([]);
 
   useEffect(() => {
-    const fetchLocalData = async () => {
-      setIsLoading(true);
-      try {
-        const res = await fetch("http://localhost:8000/chart", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticker: market.ticker, period: range })
-        });
-        
-        let drawHistoryPeriod = "5Y";
-        if (range === "1D") drawHistoryPeriod = "1W";
-        else if (range === "1W") drawHistoryPeriod = "1W";
-        else if (range === "1M") drawHistoryPeriod = "1Y";
-        else drawHistoryPeriod = "5Y";
-
-        const resH = await fetch("http://localhost:8000/chart", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticker: market.ticker, period: drawHistoryPeriod })
-        });
-
-        const res1Y = await fetch("http://localhost:8000/chart", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticker: market.ticker, period: "1Y" })
-        });
-
-        if (res.ok) {
-          const json = await res.json();
-          if (json.data && json.data.length > 0) setLocalSeries(json.data);
-        }
-        if (resH.ok) {
-          const jsonH = await resH.json();
-          if (jsonH.data && jsonH.data.length > 0) setHistorySeries(jsonH.data);
-        }
-        if (res1Y.ok) {
-          const json1Y = await res1Y.json();
-          if (json1Y.data && json1Y.data.length > 0) setRefSeries1Y(json1Y.data); // 🌟 เก็บ 1Y
-        }
-      } catch (e) { console.error("Watchlist chart fetch error", e); } 
-      finally { setIsLoading(false); }
-    };
-    fetchLocalData();
+    setIsLoading(true);
+    const histPeriod = range === "1D" || range === "1W" ? "1W" : range === "1M" ? "1Y" : "5Y";
+    Promise.all([
+      fetch("http://localhost:8000/chart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: market.ticker, period: range }) }),
+      fetch("http://localhost:8000/chart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: market.ticker, period: histPeriod }) }),
+      fetch("http://localhost:8000/chart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: market.ticker, period: "1Y" }) }),
+    ])
+      .then(([r, rH, r1Y]) => Promise.all([r.json(), rH.json(), r1Y.json()]))
+      .then(([j, jH, j1Y]) => {
+        if (j.data?.length)   setLocalSeries(j.data);
+        if (jH.data?.length)  setHistorySeries(jH.data);
+        if (j1Y.data?.length) setRefSeries1Y(j1Y.data);
+      })
+      .catch(e => console.error("Watchlist chart fetch error", e))
+      .finally(() => setIsLoading(false));
   }, [range, market.ticker]);
 
   if (localSeries.length === 0) return <div style={{ color: "var(--text-muted)", fontSize: "12px" }}>Loading chart...</div>;
 
   const calcSeries = localSeries;
-  const drawSeries = historySeries && historySeries.length > 0 ? historySeries : calcSeries;
- 
-  const refSeries = refSeries1Y.length > 0 ? refSeries1Y : drawSeries;
-  
-  let focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
-  
+  const drawSeries = historySeries.length > 0 ? historySeries : calcSeries;
+  const refSeries  = refSeries1Y.length > 0 ? refSeries1Y : drawSeries;
+
+  let focusStartT = calcSeries[0]?.t;
   if (range === "1D" && drawSeries.length > 0) {
     const lastDate = String(drawSeries[drawSeries.length - 1].t).split(" ")[0];
-    const firstCandleOfDay = drawSeries.find((d: any) => String(d.t).startsWith(lastDate));
-    if (firstCandleOfDay) focusStartT = firstCandleOfDay.t;
+    const first = drawSeries.find((d: any) => String(d.t).startsWith(lastDate));
+    if (first) focusStartT = first.t;
   }
 
-  const fibHigh = refSeries.length > 0 ? Math.max(...refSeries.map((d: any) => d.value)) : 0;
-  const fibLow  = refSeries.length > 0 ? Math.min(...refSeries.map((d: any) => d.value)) : 0;
+  const fibHigh = Math.max(...refSeries.map((d: any) => d.value));
+  const fibLow  = Math.min(...refSeries.map((d: any) => d.value));
   const fibRng  = fibHigh - fibLow;
+  const open    = calcSeries[0]?.value ?? 1;
+  const last    = calcSeries[calcSeries.length - 1]?.value ?? 1;
+  const up      = last >= open;
 
-  const open = calcSeries.length > 0 ? calcSeries[0].value : 1;
-  const last = calcSeries.length > 0 ? calcSeries[calcSeries.length - 1].value : 1;
-  const up = last >= open;
-  
-  const sortedVals = [...refSeries.map((d: any) => d.value)].sort((a,b) => a-b);
+  const sortedVals = [...refSeries.map((d: any) => d.value)].sort((a, b) => a - b);
   const dmzTop = sortedVals[Math.max(1, Math.floor(sortedVals.length * 0.10)) - 1];
   const demandZone = showDMZ ? [fibLow, dmzTop] as [number, number] : undefined;
 
-  const statHigh = calcSeries.length > 0 ? Math.max(...calcSeries.map((d: any) => d.value)) : 0;
-  const statLow  = calcSeries.length > 0 ? Math.min(...calcSeries.map((d: any) => d.value)) : 0;
+  const statHigh = Math.max(...calcSeries.map((d: any) => d.value));
+  const statLow  = Math.min(...calcSeries.map((d: any) => d.value));
   const statRng  = statHigh - statLow;
-
   const fib38 = fibLow + fibRng * 0.382;
   const fib61 = fibLow + fibRng * 0.618;
   const fib78 = fibLow + fibRng * 0.786;
@@ -97,18 +155,17 @@ const WatchlistChart = ({ market }: { market: Market }) => {
   let closestLabel = "38.2%";
   let minDiff = Math.abs(last - fib38);
   if (Math.abs(last - fib61) < minDiff) { minDiff = Math.abs(last - fib61); closestLabel = "61.8%"; }
-  if (Math.abs(last - fib78) < minDiff) { minDiff = Math.abs(last - fib78); closestLabel = "78.6%"; }
+  if (Math.abs(last - fib78) < minDiff) { closestLabel = "78.6%"; }
 
   const getFibColor = (lbl: string) => lbl === closestLabel ? "#00e5ff" : "#ff9800";
-
   const fibLevels = showFib ? [
-    { label: "0.0%", value: fibLow, color: "#ff9800" },
-    { label: "23.6%", value: fibLow + fibRng * 0.236, color: "#ff9800" },
-    { label: "38.2%", value: fib38, color: getFibColor("38.2%") },
-    { label: "50.0%", value: fibLow + fibRng * 0.500, color: "#ff9800" },
-    { label: "61.8%", value: fib61, color: getFibColor("61.8%") },
-    { label: "78.6%", value: fib78, color: getFibColor("78.6%") },
-    { label: "100.0%", value: fibHigh, color: "#ff9800" }
+    { label: "0.0%",   value: fibLow,                  color: "#ff9800" },
+    { label: "23.6%",  value: fibLow + fibRng * 0.236, color: "#ff9800" },
+    { label: "38.2%",  value: fib38,                   color: getFibColor("38.2%") },
+    { label: "50.0%",  value: fibLow + fibRng * 0.500, color: "#ff9800" },
+    { label: "61.8%",  value: fib61,                   color: getFibColor("61.8%") },
+    { label: "78.6%",  value: fib78,                   color: getFibColor("78.6%") },
+    { label: "100.0%", value: fibHigh,                  color: "#ff9800" },
   ] as any : undefined;
 
   const P = (statHigh + statLow + last) / 3;
@@ -116,7 +173,7 @@ const WatchlistChart = ({ market }: { market: Market }) => {
     { label: "RES2", value: P + statRng * 0.618, color: "#ff4466" },
     { label: "RES1", value: P + statRng * 0.382, color: "#ff7788" },
     { label: "SUP1", value: P - statRng * 0.382, color: "#00ee77" },
-    { label: "SUP2", value: P - statRng * 0.618, color: "#00d46a" }
+    { label: "SUP2", value: P - statRng * 0.618, color: "#00d46a" },
   ] as any : undefined;
 
   return (
@@ -126,7 +183,7 @@ const WatchlistChart = ({ market }: { market: Market }) => {
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", transform: "scale(0.85)", transformOrigin: "left center" }}>
           <div className="time-buttons" style={{ background: "var(--bg1)", border: "1px solid var(--border)" }}>
             <button onClick={() => setShowFib(!showFib)} className="time-btn" style={{ color: showFib ? "#ff9800" : "var(--text-muted)" }}>FIB</button>
-            <button onClick={() => setShowSR(!showSR)} className="time-btn" style={{ color: showSR ? "#00e5ff" : "var(--text-muted)" }}>R/S</button>
+            <button onClick={() => setShowSR(!showSR)}   className="time-btn" style={{ color: showSR  ? "#00e5ff" : "var(--text-muted)" }}>R/S</button>
             <button onClick={() => setShowDMZ(!showDMZ)} className="time-btn" style={{ color: showDMZ ? "#b088f5" : "var(--text-muted)" }}>DMZ</button>
           </div>
           <div className="time-buttons">
@@ -135,41 +192,38 @@ const WatchlistChart = ({ market }: { market: Market }) => {
         </div>
       </div>
       <div style={{ position: "relative", height: "180px", width: "100%" }}>
-        {isLoading && <div style={{ position: "absolute", inset: 0, background: "rgba(10,14,10,0.6)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--green)", fontSize: "10px", fontFamily: "var(--mono)" }}>UPDATING...</div>}
-        <LineChart 
-           key={range} 
-           data={drawSeries} 
-           focusStartT={focusStartT}
-           focusLength={calcSeries.length} 
-           up={up} 
-           height={180} 
-           showVolume={true} 
-           fibLevels={fibLevels} 
-           srLevels={srLevels} 
-           demandZone={demandZone} 
-        />
+        {isLoading && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(10,14,10,0.6)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--green)", fontSize: "10px", fontFamily: "var(--mono)" }}>
+            UPDATING...
+          </div>
+        )}
+        <LineChart key={range} data={drawSeries} focusStartT={focusStartT} focusLength={calcSeries.length}
+                   up={up} height={180} showVolume={true} fibLevels={fibLevels} srLevels={srLevels} demandZone={demandZone} />
       </div>
     </div>
   );
 };
 
-export const Watchlist = ({ 
-  markets, onSelect, onTrade, watchlists, toggleWatch, 
-  onCreateWatchlist, onDeleteWatchlist, 
-  analyses = {}, horizons = {}, onHorizonChange 
+// ── Main Watchlist component ─────────────────────────────────────────────────
+
+export const Watchlist = ({
+  markets, onSelect: _onSelect, onTrade, watchlists, toggleWatch,
+  onCreateWatchlist, onDeleteWatchlist,
 }: {
-  markets: Market[]; onSelect: (id: string) => void; onTrade: (ticker: string) => void;
-  watchlists: Record<string, string[]>; 
-  toggleWatch: (id: string, listName: string) => void; 
-  onCreateWatchlist: (name: string) => void; 
-  onDeleteWatchlist: (name: string) => void; 
-  analyses?: Record<string, any>; horizons?: Record<string, string>; onHorizonChange?: (ticker: string, h: string) => void;
+  markets: Market[];
+  onSelect: (id: string) => void;
+  onTrade: (ticker: string) => void;
+  watchlists: Record<string, string[]>;
+  toggleWatch: (id: string, listName: string) => void;
+  onCreateWatchlist: (name: string) => void;
+  onDeleteWatchlist: (name: string) => void;
 }) => {
   type SortCol = "ticker" | "sector" | "price" | "change";
-  const [sortBy, setSortBy] = useState<SortCol>("change");
-  const [dir, setDir] = useState<"asc" | "desc">("desc");
-  const [q, setQ] = useState("");
+  const [sortBy, setSortBy]   = useState<SortCol>("change");
+  const [dir, setDir]         = useState<"asc" | "desc">("desc");
+  const [q, setQ]             = useState("");
   const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
+  const [horizons, setHorizons] = useState<Record<string, string>>({});
 
   const lists = Object.keys(watchlists).sort((a, b) => {
     if (a === "Favorites") return -1;
@@ -177,101 +231,94 @@ export const Watchlist = ({
     return a.localeCompare(b);
   });
   const [activeList, setActiveList] = useState(lists[0] || "Favorites");
-  
   const [isCreating, setIsCreating] = useState(false);
-  const [newTopic, setNewTopic] = useState("");
+  const [newTopic, setNewTopic]     = useState("");
+
+  const getHorizon = (id: string) => horizons[id] || "Mid-term";
 
   const activeTickers = watchlists[activeList] || [];
-  const watchlistMarkets = markets.filter(m => activeTickers.includes(m.id));
+  const listMarkets   = activeList === "Favorites" ? markets : markets.filter(m => activeTickers.includes(m.id));
 
   const sorted = useMemo(() => {
-    let list = watchlistMarkets.filter(m =>
-      (q === "" || m.ticker.toLowerCase().includes(q.toLowerCase()) || m.label.toLowerCase().includes(q.toLowerCase()))
+    let list = listMarkets.filter(m =>
+      q === "" || m.ticker.toLowerCase().includes(q.toLowerCase()) || m.label.toLowerCase().includes(q.toLowerCase())
     );
-    list = [...list].sort((a, b) => {
+    return [...list].sort((a, b) => {
       const av = a[sortBy] as any, bv = b[sortBy] as any;
       const cmp = typeof av === "string" ? av.localeCompare(bv) : av - bv;
       return dir === "asc" ? cmp : -cmp;
     });
-    return list;
   }, [markets, watchlists, activeList, sortBy, dir, q]);
 
-  const click = (col: SortCol) => {
+  const clickHeader = (col: SortCol) => {
     if (sortBy === col) setDir(dir === "asc" ? "desc" : "asc");
     else { setSortBy(col); setDir("desc"); }
   };
 
-  const Header = ({ col, children, align = "left" }: { col: SortCol; children: React.ReactNode; align?: "left" | "right" }) => (
-    <th onClick={() => click(col)} style={{ textAlign: align, cursor: "pointer" }}>
-      {children}
-      <span className="sort-arrow">{sortBy === col ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
-    </th>
-  );
-
   const toggleExpand = (ticker: string) => {
     setExpandedTickers(prev => {
       const next = new Set(prev);
-      if (next.has(ticker)) next.delete(ticker); 
-      else next.add(ticker);                     
+      next.has(ticker) ? next.delete(ticker) : next.add(ticker);
       return next;
     });
   };
 
+  const Header = ({ col, children, align = "left" }: { col: SortCol; children: React.ReactNode; align?: "left" | "right" }) => (
+    <th onClick={() => clickHeader(col)} style={{ textAlign: align, cursor: "pointer" }}>
+      {children}<span className="sort-arrow">{sortBy === col ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
+    </th>
+  );
+
+  const isStarred = (id: string) => (watchlists[activeList] || []).includes(id);
+
   return (
     <div className="page">
+      {/* Topic tabs */}
       <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "20px" }}>
-        
         <div style={{ display: "flex", alignItems: "center", gap: "12px", borderBottom: "1px solid var(--border)", paddingBottom: "12px", flexWrap: "wrap" }}>
-           <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--mono)", fontWeight: "bold" }}>TOPICS:</span>
-           <div className="filter-chips" style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
-             {lists.map(l => (
-               <button key={l} className={`chip ${activeList === l ? "active" : ""}`} onClick={() => setActiveList(l)}>{l}</button>
-             ))}
-             
-             {isCreating ? (
-               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                 <input 
-                   value={newTopic} onChange={e => setNewTopic(e.target.value)} 
-                   placeholder="Topic name..." autoFocus
-                   style={{ background: "var(--bg2)", color: "var(--text-primary)", border: "1px solid var(--green)", padding: "4px 8px", borderRadius: "4px", fontSize: "11px", outline: "none", width: "120px" }}
-                   onKeyDown={e => {
-                     if (e.key === 'Enter' && newTopic.trim()) {
-                       onCreateWatchlist(newTopic.trim());
-                       setActiveList(newTopic.trim());
-                       setIsCreating(false); setNewTopic("");
-                     } else if (e.key === 'Escape') setIsCreating(false);
-                   }}
-                 />
-                 <button onClick={() => {
-                    if (newTopic.trim()) { onCreateWatchlist(newTopic.trim()); setActiveList(newTopic.trim()); }
-                    setIsCreating(false); setNewTopic("");
-                 }} style={{ background: "var(--green)", color: "var(--bg0)", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", fontWeight: "bold" }}>ADD</button>
-               </div>
-             ) : (
-               <button className="chip" onClick={() => setIsCreating(true)} style={{ borderStyle: "dashed", opacity: 0.7 }}>+ NEW TOPIC</button>
-             )}
+          <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--mono)", fontWeight: "bold" }}>TOPICS:</span>
+          <div className="filter-chips" style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
+            {lists.map(l => (
+              <button key={l} className={`chip ${activeList === l ? "active" : ""}`} onClick={() => setActiveList(l)}>{l}</button>
+            ))}
 
-             {activeList !== "Favorites" && (
-               <button 
-                 onClick={() => {
-                   if (window.confirm(`Delete topic "${activeList}"?`)) {
-                      onDeleteWatchlist(activeList);
-                      setActiveList("Favorites"); 
-                   }
-                 }}
-                 style={{ background: "transparent", color: "var(--red)", border: "1px solid rgba(255, 68, 102, 0.4)", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", marginLeft: "auto", fontFamily: "var(--mono)" }}
-               >
-                 DELETE
-               </button>
-             )}
-           </div>
+            {isCreating ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <input
+                  value={newTopic} onChange={e => setNewTopic(e.target.value)}
+                  placeholder="Topic name…" autoFocus
+                  style={{ background: "var(--bg2)", color: "var(--text-primary)", border: "1px solid var(--green)", padding: "4px 8px", borderRadius: "4px", fontSize: "11px", outline: "none", width: "120px" }}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && newTopic.trim()) {
+                      onCreateWatchlist(newTopic.trim()); setActiveList(newTopic.trim());
+                      setIsCreating(false); setNewTopic("");
+                    } else if (e.key === "Escape") { setIsCreating(false); }
+                  }}
+                />
+                <button onClick={() => {
+                  if (newTopic.trim()) { onCreateWatchlist(newTopic.trim()); setActiveList(newTopic.trim()); }
+                  setIsCreating(false); setNewTopic("");
+                }} style={{ background: "var(--green)", color: "var(--bg0)", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", fontWeight: "bold" }}>ADD</button>
+              </div>
+            ) : (
+              <button className="chip" onClick={() => setIsCreating(true)} style={{ borderStyle: "dashed", opacity: 0.7 }}>+ NEW TOPIC</button>
+            )}
+
+            {activeList !== "Favorites" && (
+              <button onClick={() => { if (window.confirm(`Delete topic "${activeList}"?`)) { onDeleteWatchlist(activeList); setActiveList("Favorites"); } }}
+                style={{ background: "transparent", color: "var(--red)", border: "1px solid rgba(255,68,102,0.4)", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", marginLeft: "auto", fontFamily: "var(--mono)" }}>
+                DELETE
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="watchlist-toolbar" style={{ margin: 0 }}>
           <input className="search-input" style={{ maxWidth: "300px" }} placeholder="Filter ticker or name…" value={q} onChange={e => setQ(e.target.value)} />
         </div>
       </div>
-      
+
+      {/* Table */}
       <div className="card" style={{ padding: 0 }}>
         <table className="data-table">
           <thead>
@@ -282,31 +329,19 @@ export const Watchlist = ({
               <Header col="price" align="right">Price</Header>
               <Header col="change" align="right">Day Δ</Header>
               <th style={{ textAlign: "center" }}>Horizon</th>
-              <th style={{ textAlign: "center" }}>AI Signal</th>
               <th style={{ textAlign: "center" }}>Trend (1W)</th>
               <th style={{ textAlign: "right", width: 80 }}></th>
             </tr>
           </thead>
           <tbody>
             {sorted.map(m => {
-              const aiData = analyses[m.ticker];
               const isExpanded = expandedTickers.has(m.ticker);
-              const signal = aiData ? (aiData.action || aiData.ai_analysis?.action || "LOADING...") : "LOADING...";
-              
-              let signalColor = "var(--text-muted)";
-              if (signal === "BUY") signalColor = "var(--up)";
-              if (signal === "SELL") signalColor = "var(--down)";
-
               return (
                 <React.Fragment key={m.id}>
-                  {/* Main Row */}
-                  <tr 
-                    onClick={() => toggleExpand(m.ticker)} 
-                    style={{ cursor: "pointer", background: isExpanded ? "rgba(255,255,255,0.02)" : "transparent" }}
-                  >
+                  <tr onClick={() => toggleExpand(m.ticker)} style={{ cursor: "pointer", background: isExpanded ? "rgba(255,255,255,0.02)" : "transparent" }}>
                     <td>
-                      <button className="watch-star" onClick={(e) => { e.stopPropagation(); toggleWatch(m.id, activeList); }} aria-label="Toggle watch">
-                        {watchlists[activeList]?.includes(m.id) ? "★" : "☆"}
+                      <button className="watch-star" onClick={e => { e.stopPropagation(); toggleWatch(m.id, activeList); }} aria-label="Toggle watch">
+                        {isStarred(m.id) ? "★" : "☆"}
                       </button>
                     </td>
                     <td>
@@ -318,119 +353,46 @@ export const Watchlist = ({
                     <td className="dim">{m.sector}</td>
                     <td className="num">${fmtPrice(m.price)}</td>
                     <td className={m.up ? "num up" : "num down"}>{m.up ? "▲" : "▼"} {fmtPct(m.change)}</td>
-                    
                     <td style={{ textAlign: "center" }}>
                       <select
-                        className="horizon-select" 
-                        value={horizons[m.id] || "Mid-term"} 
-                        onChange={(e) => onHorizonChange && onHorizonChange(m.id, e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          background: "var(--bg3)", color: "var(--text-secondary)", border: "1px solid var(--border)",
-                          padding: "4px 6px", fontFamily: "var(--mono)", fontSize: "10px", outline: "none", cursor: "pointer", borderRadius: "4px"
-                        }}
+                        value={getHorizon(m.id)}
+                        onChange={e => { e.stopPropagation(); setHorizons(prev => ({ ...prev, [m.id]: e.target.value })); }}
+                        onClick={e => e.stopPropagation()}
+                        style={{ background: "var(--bg3)", color: "var(--text-secondary)", border: "1px solid var(--border)", padding: "4px 6px", fontFamily: "var(--mono)", fontSize: "10px", outline: "none", cursor: "pointer", borderRadius: "4px" }}
                       >
                         <option value="Short-term">Short</option>
                         <option value="Mid-term">Mid</option>
                         <option value="Long-term">Long</option>
                       </select>
                     </td>
-
-                    <td style={{ textAlign: "center", fontFamily: "var(--mono)", fontWeight: "bold", color: signalColor, fontSize: "11px" }}>
-                      {signal}
-                    </td>
-                    
                     <td style={{ display: "flex", justifyContent: "center" }}>
                       <Sparkline data={m.data["1W"]} up={m.up} width={120} height={28} />
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <button className="mini-btn" onClick={(e) => { e.stopPropagation(); onTrade(m.ticker); }}>Trade</button>
+                      <button className="mini-btn" onClick={e => { e.stopPropagation(); onTrade(m.ticker); }}>Trade</button>
                     </td>
                   </tr>
 
-                  {/* Expanded Row */}
                   {isExpanded && (
                     <tr style={{ background: "var(--bg1)", borderBottom: "1px solid var(--border)" }}>
-                      <td colSpan={9} style={{ padding: "16px 24px" }}>
-                        
-                        <div style={{ 
-                          display: "grid", 
-                          gridTemplateColumns: "2.5fr 1fr 2fr", 
-                          gap: "24px", 
-                          background: "var(--bg2)", 
-                          padding: "20px",
-                          border: "1px solid var(--border-bright)", 
-                          borderRadius: "6px",
-                          minWidth: 0 // ดักไม่ให้ Flex ทะลุจอ
-                        }}>
-                          
-                          {/* Sec 1: Chart */}
+                      <td colSpan={8} style={{ padding: "16px 24px" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "2fr 3fr", gap: "24px", background: "var(--bg2)", padding: "20px", border: "1px solid var(--border-bright)", borderRadius: "6px" }}>
+                          {/* Chart */}
                           <div style={{ borderRight: "1px dashed var(--border)", paddingRight: "24px", display: "flex", flexDirection: "column", minWidth: 0 }}>
                             <WatchlistChart market={m} />
                           </div>
-
-                          {/* Sec 2: Setup (Entry, Target, Stop) */}
-                          <div style={{ borderRight: "1px dashed var(--border)", paddingRight: "24px", display: "flex", flexDirection: "column", gap: "12px", justifyContent: "flex-start" }}>
-                            <div style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--text-muted)", marginBottom: "4px" }}>TRADE SETUP</div>
-                            
-                            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--mono)", fontSize: "13px" }}>
-                              <span style={{ color: "var(--text-secondary)" }}>RECOMMENDED ENTRY</span>
-                              <span style={{ color: "var(--text-primary)" }}>{aiData?.ai_analysis?.recommended_entry_price || "-"}</span>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--mono)", fontSize: "13px" }}>
-                              <span style={{ color: "var(--text-secondary)" }}>TARGET</span>
-                              <span style={{ color: "var(--up)" }}>{aiData?.ai_analysis?.target_price || "-"}</span>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "var(--mono)", fontSize: "13px" }}>
-                              <span style={{ color: "var(--text-secondary)" }}>STOP LOSS</span>
-                              <span style={{ color: "var(--down)" }}>{aiData?.ai_analysis?.stop_loss || "-"}</span>
-                            </div>
+                          {/* AI Analysis */}
+                          <div style={{ minWidth: 0 }}>
+                            <AIAnalysisPanel ticker={m.ticker} horizon={getHorizon(m.id)} />
                           </div>
-
-                          {/* Sec 3: Analysis Rationale */}
-                          <div>
-                            <div style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--text-muted)", marginBottom: "8px" }}>QUANT AI RATIONALE</div>
-                            {/* Set scrollable container */}
-                            <div className="scroll" style={{ 
-                              fontSize: "13px", 
-                              color: "var(--text-primary)", 
-                              lineHeight: "1.6", 
-                              height: "130px", 
-                              overflowY: "auto",
-                              paddingRight: "12px",
-                              whiteSpace: "pre-wrap" 
-                            }}>
-                              {aiData?.ai_analysis?.analysis?.rationale || "AI Analysis pending or no rationale provided for this stock."}
-                              
-                              {aiData?.ai_analysis?.analysis?.technical_view && (
-                                <div style={{ marginTop: "12px" }}>
-                                  <div style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--text-secondary)", marginBottom: "4px" }}>TECHNICAL VIEW:</div>
-                                  <div style={{ color: "var(--text-primary)" }}>
-                                    {aiData.ai_analysis.analysis.technical_view}
-                                  </div>
-                                </div>
-                              )}
-
-                              {aiData?.ai_analysis?.analysis?.fundamental_view && (
-                                <div style={{ marginTop: "12px" }}>
-                                  <div style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--text-secondary)", marginBottom: "4px" }}>FUNDAMENTAL VIEW:</div>
-                                  <div style={{ color: "var(--text-primary)" }}>
-                                    {aiData.ai_analysis.analysis.fundamental_view}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
                         </div>
-
                       </td>
                     </tr>
                   )}
                 </React.Fragment>
               );
             })}
-            {sorted.length === 0 && (<tr><td colSpan={9} className="empty">No matches.</td></tr>)}
+            {sorted.length === 0 && <tr><td colSpan={8} className="empty">No matches.</td></tr>}
           </tbody>
         </table>
       </div>

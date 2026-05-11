@@ -193,21 +193,14 @@ func GetStockRecords(symbol string) ([]StockRecord, error) {
 }
 
 func TrackedSymbols() ([]string, error) {
-	print("working 2\n")
-
 	if pool == nil {
 		return nil, errors.New("database pool is not initialized")
 	}
-	print("working 3\n")
-
 
 	rows, err := pool.Query(context.Background(), "SELECT DISTINCT symbol FROM stocks ORDER BY symbol")
 	if err != nil {
-		print("error here\n")
 		return nil, err
 	}
-	print("working 4\n")
-
 	defer rows.Close()
 
 	var symbols []string
@@ -218,12 +211,8 @@ func TrackedSymbols() ([]string, error) {
 		}
 		symbols = append(symbols, symbol)
 	}
-	print("working 5\n")
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	print("working 6\n")
-	return symbols, nil
+
+	return symbols, rows.Err()
 }
 
 func FetchStockData(symbol string) (string, error) {
@@ -258,12 +247,10 @@ func FetchStockData(symbol string) (string, error) {
 }
 
 func RefreshAllStocks() error {
-	print("working \n")
 	symbols, err := TrackedSymbols()
 	if err != nil {
 		return err
 	}
-	print("working \n")
 
 	for _, symbol := range symbols {
 		if output, err := FetchStockData(symbol); err != nil {
