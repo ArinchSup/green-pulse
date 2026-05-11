@@ -7,7 +7,7 @@ services:
       - chroma-data:/chroma/chroma
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      test: ["CMD-SHELL", "python -c 'import socket; s=socket.socket(); s.connect((\"localhost\", 8000)); s.close()'"]
       interval: 10s
       timeout: 5s
       retries: 5
