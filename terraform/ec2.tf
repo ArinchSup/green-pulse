@@ -6,6 +6,11 @@ resource "aws_instance" "app" {
   iam_instance_profile = "EC2-green-pulse"
   tags = { Name = "green-pulse-app" }
 
+  root_block_device {
+  volume_size = 30   # GB
+  volume_type = "gp3"
+}
+
   user_data = <<-EOF
   #!/bin/bash
 
