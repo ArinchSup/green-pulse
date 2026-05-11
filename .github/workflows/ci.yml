@@ -59,7 +59,7 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters commands=["HOME=/root git config --global --add safe.directory /home/ubuntu/green-pulse","python3 -c \"import os; f=open('/home/ubuntu/green-pulse/.env','w'); [f.write(k+'='+v+'\\n') for k,v in os.environ.items() if k in ['FINNHUB_API_KEY','IS_LOCAL','GRAFANA_PASSWORD','SUPADBPASS','DATABASE','SUPADBHOST','SUPADBPORT','CLIENTID','CLIENTSECRET']]; f.close()\""] \
+            --cli-input-json "{\"DocumentName\":\"AWS-RunShellScript\",\"InstanceIds\":[\"$INSTANCE_ID\"],\"Parameters\":{\"commands\":[\"HOME=/root git config --global --add safe.directory /home/ubuntu/green-pulse\",\"cat > /home/ubuntu/green-pulse/.env << 'ENVEOF'\\nFINNHUB_API_KEY=$FINNHUB_API_KEY\\nIS_LOCAL=$IS_LOCAL\\nGRAFANA_PASSWORD=$GRAFANA_PASSWORD\\nSUPADBPASS=$SUPADBPASS\\nDATABASE=$DATABASE\\nSUPADBHOST=$SUPADBHOST\\nSUPADBPORT=$SUPADBPORT\\nCLIENTID=$CLIENTID\\nCLIENTSECRET=$CLIENTSECRET\\nENVEOF\"]}}" \
             --region "$REGION" \
             --query "Command.CommandId" \
             --output text)
