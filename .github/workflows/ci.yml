@@ -37,7 +37,7 @@ jobs:
 
       - name: Deploy via AWS SSM
         run: |
-          INSTANCE_ID="i-0bf07aa1199a37d2b"
+          INSTANCE_ID="i-0977464bde6edc615"
           REGION="ap-southeast-1"
 
 
