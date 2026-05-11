@@ -63,7 +63,7 @@ export const LineChart = ({
 
   if (!data || !Array.isArray(data) || data.length < 2) return null;
 
-  const padL = 60, padR = 50, padT = 20, padB = showVolume ? 40 : 20;
+  const padL = 10, padR = 60, padT = 20, padB = showVolume ? 40 : 20;
   const chartW = Math.max(1, w - padL - padR);
   const chartH = Math.max(1, height - padT - padB);
 
@@ -204,7 +204,7 @@ export const LineChart = ({
         {showGrid && ticks.map((t, i) => (
           <g key={`y-${i}`}>
             <line x1={padL} x2={padL + chartW} y1={t.y} y2={t.y} stroke="var(--border)" strokeDasharray="2 4" strokeWidth="1" />
-            <text x={padL - 8} y={t.y + 3} fill="var(--text-muted)" fontSize="10" textAnchor="end" fontFamily="var(--mono)">{fmtPrice(t.v)}</text>
+            <text x={padL + chartW + 8} y={t.y + 3} fill="var(--text-muted)" fontSize="10" textAnchor="start" fontFamily="var(--mono)">{fmtPrice(t.v)}</text>
           </g>
         ))}
         {showGrid && xTicksArr.map((t, i) => (
@@ -270,8 +270,8 @@ export const LineChart = ({
             <circle cx={hover.x} cy={hover.y} r="4" fill="var(--bg0)" stroke={color} strokeWidth="2" />
             
             {/* กล่องราคาเลื่อนตามแนวตั้ง (Y) */}
-            <rect x={padL + chartW} y={hover.y - 10} width="44" height="20" fill="var(--bg2)" stroke="var(--border)" strokeWidth="1" rx="2" />
-            <text x={padL + chartW + 22} y={hover.y + 4} fill="var(--text-primary)" fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmtPrice(hover.v)}</text>
+            <rect x={padL + chartW + 2} y={hover.y - 9} width={padR - 4} height="18" fill="var(--bg2)" stroke={color} strokeWidth="1" rx="2" />
+            <text x={padL + chartW + padR / 2} y={hover.y + 4} fill={color} fontSize="10" fontFamily="var(--mono)" textAnchor="middle">{fmtPrice(hover.v)}</text>
             
             {/* 🌟 กล่องวันที่ ย้ายขึ้นไปข้างบน (padT) */}
             <rect x={hover.x - 45} y={padT - 18} width="90" height="18" fill="var(--bg2)" stroke="var(--border)" strokeWidth="1" rx="2" />

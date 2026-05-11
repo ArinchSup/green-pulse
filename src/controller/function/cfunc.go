@@ -107,39 +107,35 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to check user", http.StatusInternalServerError)
 			return
 		}
-
-		var signupID string
 		if existingID != "" {
-			signupID = existingID
-		} else {
-			newID, err := CreateGoogleUser(googleUser.ID, googleUser.Email)
-			if err != nil {
-				log.Printf("database create error: %v", err)
-				http.Error(w, "Failed to create user", http.StatusInternalServerError)
-				return
-			}
-			log.Printf("New user signed up with internal id: %s", newID)
-			signupID = newID
+			log.Printf("Signup rejected: account already exists for google_id %s", googleUser.ID)
+			http.Redirect(w, r, frontendURL+"?error=account_exists", http.StatusSeeOther)
+			return
 		}
-
-		http.Redirect(w, r, frontendURL+"?token="+url.QueryEscape(token.AccessToken)+"&email="+url.QueryEscape(googleUser.Email)+"&user_id="+url.QueryEscape(signupID), http.StatusSeeOther)
+		newID, err := CreateGoogleUser(googleUser.ID, googleUser.Email)
+		if err != nil {
+			log.Printf("database create error: %v", err)
+			http.Error(w, "Failed to create user", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("New user signed up with internal id: %s", newID)
+		http.Redirect(w, r, frontendURL+"?token="+url.QueryEscape(token.AccessToken)+"&email="+url.QueryEscape(googleUser.Email)+"&user_id="+url.QueryEscape(newID), http.StatusSeeOther)
 		return
 	}
 
-	query := `
-		INSERT INTO users (google_id, email)
-		VALUES ($1, $2)
-		ON CONFLICT (google_id) DO UPDATE SET email = EXCLUDED.email
-		RETURNING id;
-	`
-
-	internalID, err := SyncGoogleUser(query, googleUser.ID, googleUser.Email)
+	// Sign in: reject if no account exists
+	existingID, err := GetGoogleUserID(googleUser.ID)
 	if err != nil {
-		log.Printf("database error: %v", err)
-		http.Error(w, "Failed to sync user", http.StatusInternalServerError)
+		log.Printf("database lookup error: %v", err)
+		http.Error(w, "Failed to check user", http.StatusInternalServerError)
+		return
+	}
+	if existingID == "" {
+		log.Printf("Signin rejected: no account found for google_id %s", googleUser.ID)
+		http.Redirect(w, r, frontendURL+"?error=no_account", http.StatusSeeOther)
 		return
 	}
 
-	log.Printf("User synced with internal id: %s", internalID)
-	http.Redirect(w, r, frontendURL+"?token="+url.QueryEscape(token.AccessToken)+"&email="+url.QueryEscape(googleUser.Email)+"&user_id="+url.QueryEscape(internalID), http.StatusSeeOther)
+	log.Printf("User signed in with internal id: %s", existingID)
+	http.Redirect(w, r, frontendURL+"?token="+url.QueryEscape(token.AccessToken)+"&email="+url.QueryEscape(googleUser.Email)+"&user_id="+url.QueryEscape(existingID), http.StatusSeeOther)
 }

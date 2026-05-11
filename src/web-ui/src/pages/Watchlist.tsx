@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { LineChart, Sparkline } from "../primitives";
 import { fmtPrice, fmtPct } from "../format";
 import { RANGE_KEYS } from "../variable";
-import type { Market, PricePoint, RangeKey } from "../types";
+import type { Market, PricePoint, RangeKey, SectorKey } from "../types";
 
 // ── AI Analysis panel (self-fetching) ───────────────────────────────────────
 
@@ -206,49 +206,80 @@ const WatchlistChart = ({ market }: { market: Market }) => {
 
 // ── Main Watchlist component ─────────────────────────────────────────────────
 
+const createStub = (ticker: string): Market => ({
+  id: ticker.toLowerCase(),
+  label: ticker,
+  ticker: ticker.toUpperCase(),
+  sector: "Equity" as SectorKey,
+  base: 0, price: 0, change: 0, up: false,
+  data: { "1D": [], "1W": [], "1M": [], "3M": [], "1Y": [], "5Y": [] } as Record<RangeKey, PricePoint[]>,
+});
+
 export const Watchlist = ({
-  markets, onSelect: _onSelect, onTrade, watchlists, toggleWatch,
-  onCreateWatchlist, onDeleteWatchlist,
+  markets,
+  favTickers, addFavorite, removeFavorite,
+  topicWatchlists, toggleTopic,
 }: {
   markets: Market[];
-  onSelect: (id: string) => void;
-  onTrade: (ticker: string) => void;
-  watchlists: Record<string, string[]>;
-  toggleWatch: (id: string, listName: string) => void;
-  onCreateWatchlist: (name: string) => void;
-  onDeleteWatchlist: (name: string) => void;
+  favTickers: string[];
+  addFavorite: (ticker: string) => void;
+  removeFavorite: (ticker: string) => void;
+  topicWatchlists: Record<string, string[]>;
+  toggleTopic: (id: string, listName: string) => void;
 }) => {
   type SortCol = "ticker" | "sector" | "price" | "change";
-  const [sortBy, setSortBy]   = useState<SortCol>("change");
-  const [dir, setDir]         = useState<"asc" | "desc">("desc");
-  const [q, setQ]             = useState("");
+  const [sortBy, setSortBy]     = useState<SortCol>("change");
+  const [dir, setDir]           = useState<"asc" | "desc">("desc");
+  const [searchInput, setSearchInput] = useState("");
   const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
-  const [horizons, setHorizons] = useState<Record<string, string>>({});
+  const [liveQuotes, setLiveQuotes] = useState<Record<string, { price: number; change: number; up: boolean; sparkline: PricePoint[] }>>({});
 
-  const lists = Object.keys(watchlists).sort((a, b) => {
-    if (a === "Favorites") return -1;
-    if (b === "Favorites") return 1;
-    return a.localeCompare(b);
-  });
-  const [activeList, setActiveList] = useState(lists[0] || "Favorites");
-  const [isCreating, setIsCreating] = useState(false);
-  const [newTopic, setNewTopic]     = useState("");
+  const lists = ["Favorites", ...Object.keys(topicWatchlists)];
+  const [activeList, setActiveList] = useState("Favorites");
 
-  const getHorizon = (id: string) => horizons[id] || "Mid-term";
+  const favoriteMarkets = useMemo(() =>
+    favTickers.map(t => markets.find(m => m.ticker.toUpperCase() === t) ?? createStub(t)),
+    [favTickers, markets]
+  );
 
-  const activeTickers = watchlists[activeList] || [];
-  const listMarkets   = activeList === "Favorites" ? markets : markets.filter(m => activeTickers.includes(m.id));
+  const listMarkets = activeList === "Favorites"
+    ? favoriteMarkets
+    : markets.filter(m => (topicWatchlists[activeList] || []).includes(m.id));
+
+  // Fetch live 1D quotes for all favorites
+  useEffect(() => {
+    favTickers.forEach(ticker => {
+      fetch("http://localhost:8000/chart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker, period: "1D" }),
+      })
+        .then(r => r.json())
+        .then((j: { data: PricePoint[] }) => {
+          if (!j.data?.length) return;
+          const open  = j.data[0].value;
+          const price = j.data[j.data.length - 1].value;
+          const change = ((price - open) / open) * 100;
+          setLiveQuotes(prev => ({ ...prev, [ticker]: { price, change, up: change >= 0, sparkline: j.data } }));
+        })
+        .catch(() => {});
+    });
+  }, [favTickers.join(",")]);
 
   const sorted = useMemo(() => {
-    let list = listMarkets.filter(m =>
-      q === "" || m.ticker.toLowerCase().includes(q.toLowerCase()) || m.label.toLowerCase().includes(q.toLowerCase())
-    );
-    return [...list].sort((a, b) => {
-      const av = a[sortBy] as any, bv = b[sortBy] as any;
+    return [...listMarkets].sort((a, b) => {
+      const qa = liveQuotes[a.ticker.toUpperCase()];
+      const qb = liveQuotes[b.ticker.toUpperCase()];
+      let av: any = sortBy === "price"  ? (qa?.price  ?? a.price)
+                  : sortBy === "change" ? (qa?.change ?? a.change)
+                  : (a as any)[sortBy];
+      let bv: any = sortBy === "price"  ? (qb?.price  ?? b.price)
+                  : sortBy === "change" ? (qb?.change ?? b.change)
+                  : (b as any)[sortBy];
       const cmp = typeof av === "string" ? av.localeCompare(bv) : av - bv;
       return dir === "asc" ? cmp : -cmp;
     });
-  }, [markets, watchlists, activeList, sortBy, dir, q]);
+  }, [listMarkets, liveQuotes, sortBy, dir]);
 
   const clickHeader = (col: SortCol) => {
     if (sortBy === col) setDir(dir === "asc" ? "desc" : "asc");
@@ -263,13 +294,16 @@ export const Watchlist = ({
     });
   };
 
+  const handleAdd = () => {
+    const t = searchInput.trim().toUpperCase();
+    if (t) { addFavorite(t); setSearchInput(""); }
+  };
+
   const Header = ({ col, children, align = "left" }: { col: SortCol; children: React.ReactNode; align?: "left" | "right" }) => (
     <th onClick={() => clickHeader(col)} style={{ textAlign: align, cursor: "pointer" }}>
       {children}<span className="sort-arrow">{sortBy === col ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
     </th>
   );
-
-  const isStarred = (id: string) => (watchlists[activeList] || []).includes(id);
 
   return (
     <div className="page">
@@ -282,40 +316,27 @@ export const Watchlist = ({
               <button key={l} className={`chip ${activeList === l ? "active" : ""}`} onClick={() => setActiveList(l)}>{l}</button>
             ))}
 
-            {isCreating ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                <input
-                  value={newTopic} onChange={e => setNewTopic(e.target.value)}
-                  placeholder="Topic name…" autoFocus
-                  style={{ background: "var(--bg2)", color: "var(--text-primary)", border: "1px solid var(--green)", padding: "4px 8px", borderRadius: "4px", fontSize: "11px", outline: "none", width: "120px" }}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && newTopic.trim()) {
-                      onCreateWatchlist(newTopic.trim()); setActiveList(newTopic.trim());
-                      setIsCreating(false); setNewTopic("");
-                    } else if (e.key === "Escape") { setIsCreating(false); }
-                  }}
-                />
-                <button onClick={() => {
-                  if (newTopic.trim()) { onCreateWatchlist(newTopic.trim()); setActiveList(newTopic.trim()); }
-                  setIsCreating(false); setNewTopic("");
-                }} style={{ background: "var(--green)", color: "var(--bg0)", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", fontWeight: "bold" }}>ADD</button>
-              </div>
-            ) : (
-              <button className="chip" onClick={() => setIsCreating(true)} style={{ borderStyle: "dashed", opacity: 0.7 }}>+ NEW TOPIC</button>
-            )}
-
-            {activeList !== "Favorites" && (
-              <button onClick={() => { if (window.confirm(`Delete topic "${activeList}"?`)) { onDeleteWatchlist(activeList); setActiveList("Favorites"); } }}
-                style={{ background: "transparent", color: "var(--red)", border: "1px solid rgba(255,68,102,0.4)", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "11px", marginLeft: "auto", fontFamily: "var(--mono)" }}>
-                DELETE
-              </button>
-            )}
           </div>
         </div>
 
-        <div className="watchlist-toolbar" style={{ margin: 0 }}>
-          <input className="search-input" style={{ maxWidth: "300px" }} placeholder="Filter ticker or name…" value={q} onChange={e => setQ(e.target.value)} />
-        </div>
+        {activeList === "Favorites" && (
+          <div className="watchlist-toolbar" style={{ margin: 0, display: "flex", gap: "8px" }}>
+            <input
+              className="search-input"
+              style={{ maxWidth: "260px" }}
+              placeholder="Ticker symbol…"
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value.toUpperCase())}
+              onKeyDown={e => e.key === "Enter" && handleAdd()}
+            />
+            <button
+              onClick={handleAdd}
+              style={{ padding: "0 16px", background: "rgba(0,212,106,0.15)", color: "var(--green)", border: "1px solid var(--green)", borderRadius: "4px", cursor: "pointer", fontFamily: "var(--mono)", fontSize: "11px", fontWeight: "bold" }}
+            >
+              ADD
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -328,20 +349,32 @@ export const Watchlist = ({
               <Header col="sector">Sector</Header>
               <Header col="price" align="right">Price</Header>
               <Header col="change" align="right">Day Δ</Header>
-              <th style={{ textAlign: "center" }}>Horizon</th>
-              <th style={{ textAlign: "center" }}>Trend (1W)</th>
-              <th style={{ textAlign: "right", width: 80 }}></th>
+              <th style={{ textAlign: "center" }}>Trend (1D)</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map(m => {
               const isExpanded = expandedTickers.has(m.ticker);
+              const qt = liveQuotes[m.ticker.toUpperCase()];
+              const displayPrice    = qt ? qt.price    : m.price;
+              const displayChange   = qt ? qt.change   : m.change;
+              const displayUp       = qt ? qt.up       : m.up;
+              const displaySparkline = qt ? qt.sparkline : m.data["1W"];
               return (
                 <React.Fragment key={m.id}>
                   <tr onClick={() => toggleExpand(m.ticker)} style={{ cursor: "pointer", background: isExpanded ? "rgba(255,255,255,0.02)" : "transparent" }}>
                     <td>
-                      <button className="watch-star" onClick={e => { e.stopPropagation(); toggleWatch(m.id, activeList); }} aria-label="Toggle watch">
-                        {isStarred(m.id) ? "★" : "☆"}
+                      <button
+                        className="watch-star"
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (activeList === "Favorites") removeFavorite(m.ticker);
+                          else toggleTopic(m.id, activeList);
+                        }}
+                        aria-label="Remove"
+                        style={activeList === "Favorites" ? { color: "var(--red)", fontSize: "16px" } : undefined}
+                      >
+                        {activeList === "Favorites" ? "−" : (topicWatchlists[activeList] || []).includes(m.id) ? "★" : "☆"}
                       </button>
                     </td>
                     <td>
@@ -351,39 +384,22 @@ export const Watchlist = ({
                       </div>
                     </td>
                     <td className="dim">{m.sector}</td>
-                    <td className="num">${fmtPrice(m.price)}</td>
-                    <td className={m.up ? "num up" : "num down"}>{m.up ? "▲" : "▼"} {fmtPct(m.change)}</td>
-                    <td style={{ textAlign: "center" }}>
-                      <select
-                        value={getHorizon(m.id)}
-                        onChange={e => { e.stopPropagation(); setHorizons(prev => ({ ...prev, [m.id]: e.target.value })); }}
-                        onClick={e => e.stopPropagation()}
-                        style={{ background: "var(--bg3)", color: "var(--text-secondary)", border: "1px solid var(--border)", padding: "4px 6px", fontFamily: "var(--mono)", fontSize: "10px", outline: "none", cursor: "pointer", borderRadius: "4px" }}
-                      >
-                        <option value="Short-term">Short</option>
-                        <option value="Mid-term">Mid</option>
-                        <option value="Long-term">Long</option>
-                      </select>
-                    </td>
+                    <td className="num">${fmtPrice(displayPrice)}</td>
+                    <td className={displayUp ? "num up" : "num down"}>{displayUp ? "▲" : "▼"} {fmtPct(displayChange)}</td>
                     <td style={{ display: "flex", justifyContent: "center" }}>
-                      <Sparkline data={m.data["1W"]} up={m.up} width={120} height={28} />
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <button className="mini-btn" onClick={e => { e.stopPropagation(); onTrade(m.ticker); }}>Trade</button>
+                      <Sparkline data={displaySparkline} up={displayUp} width={120} height={28} />
                     </td>
                   </tr>
 
                   {isExpanded && (
                     <tr style={{ background: "var(--bg1)", borderBottom: "1px solid var(--border)" }}>
-                      <td colSpan={8} style={{ padding: "16px 24px" }}>
+                      <td colSpan={6} style={{ padding: "16px 24px" }}>
                         <div style={{ display: "grid", gridTemplateColumns: "2fr 3fr", gap: "24px", background: "var(--bg2)", padding: "20px", border: "1px solid var(--border-bright)", borderRadius: "6px" }}>
-                          {/* Chart */}
                           <div style={{ borderRight: "1px dashed var(--border)", paddingRight: "24px", display: "flex", flexDirection: "column", minWidth: 0 }}>
                             <WatchlistChart market={m} />
                           </div>
-                          {/* AI Analysis */}
                           <div style={{ minWidth: 0 }}>
-                            <AIAnalysisPanel ticker={m.ticker} horizon={getHorizon(m.id)} />
+                            <AIAnalysisPanel ticker={m.ticker} horizon="Mid-term" />
                           </div>
                         </div>
                       </td>
@@ -392,7 +408,9 @@ export const Watchlist = ({
                 </React.Fragment>
               );
             })}
-            {sorted.length === 0 && <tr><td colSpan={8} className="empty">No matches.</td></tr>}
+            {sorted.length === 0 && (
+              <tr><td colSpan={6} className="empty">No tickers added — type a symbol above and press ADD.</td></tr>
+            )}
           </tbody>
         </table>
       </div>

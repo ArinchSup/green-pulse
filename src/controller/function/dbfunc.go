@@ -71,20 +71,6 @@ func ConnectDB() *pgxpool.Pool {
 	return dbPool
 }
 
-func SyncGoogleUser(query string, googleID string, email string) (string, error) {
-	if pool == nil {
-		return "", errors.New("database pool is not initialized")
-	}
-
-	var internalID string
-	err := pool.QueryRow(context.Background(), query, googleID, email).Scan(&internalID)
-	if err != nil {
-		return "", err
-	}
-
-	return internalID, nil
-}
-
 func GetGoogleUserID(googleID string) (string, error) {
 	if pool == nil {
 		return "", errors.New("database pool is not initialized")

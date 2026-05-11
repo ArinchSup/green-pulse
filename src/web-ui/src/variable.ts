@@ -55,6 +55,7 @@ const buildMarket = (
 };
 
 export const MARKETS: Market[] = [
+  buildMarket("sp500",  "S&P 500",      "SPX",   520.00,    0.00, 42,  "Index"),
   buildMarket("nvda",   "NVIDIA",       "NVDA",  892.55,    3.41, 83,  "Equity"),
   buildMarket("aapl",   "Apple",        "AAPL",  189.84,   -0.62, 89,  "Equity"),
   buildMarket("tsla",   "Tesla",        "TSLA",  248.12,   -2.11, 97,  "Equity"),
@@ -90,7 +91,6 @@ export const findMarket = (ticker: string, list: Market[] = MARKETS): Market | u
 
 export const NavItems = [
   { id: "overview",  label: "Overview"  },
-  { id: "portfolio", label: "Portfolio" },
   { id: "watchlist", label: "Watchlist" },
   { id: "settings",  label: "Settings"  },
 ];
