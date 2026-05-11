@@ -45,7 +45,7 @@ jobs:
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript"  \
             --parameters 'commands=[
-            "git config --global --add safe.directory /home/ubuntu/green-pulse",
+            "HOME=/root git config --global --add safe.directory /home/ubuntu/green-pulse",,
             "cd /home/ubuntu/green-pulse && git pull origin main",
             "echo FINNHUB_API_KEY=${{ secrets.FINNHUB_API_KEY }} > /home/ubuntu/green-pulse/.env",
             "echo IS_LOCAL=${{ secrets.IS_LOCAL }} >> /home/ubuntu/green-pulse/.env",
