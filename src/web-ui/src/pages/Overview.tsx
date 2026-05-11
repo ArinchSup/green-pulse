@@ -1,6 +1,6 @@
 // src/pages/Overview.tsx
-import { useState } from "react";
-import type { Market, NewsItem, RangeKey } from "../types";
+import { useState, useEffect } from "react";
+import type { Market, NewsItem, PricePoint, RangeKey } from "../types";
 import { Sparkline, LineChart, Pill } from "../primitives";
 import { fmtPrice, fmtPct } from "../format";
 import { RANGE_KEYS } from "../variable";
@@ -12,43 +12,78 @@ const Stat = ({ label, value, tone }: { label: string; value: string; tone?: "up
   </div>
 );
 
-export const Overview = ({ 
-  markets, selectedId, onSelect, range, setRange, news, isChartUpdating,
-  isSearchMode = false, watchlists = {}, onToggleWatch, onCreateWatchlist, onGoToOverview,
-  pinnedOverview, onRemovePinned, onPinToOverview 
+export const Overview = ({
+  markets, selectedId, onSelect, range, setRange, news, watchlists = {}
 }: {
   markets: Market[]; selectedId: string; onSelect: (id: string) => void;
   range: RangeKey; setRange: (r: RangeKey) => void; news: NewsItem[];
-  isChartUpdating?: boolean; 
-  isSearchMode?: boolean;           
-  watchlists?: Record<string, string[]>;                 
-  onToggleWatch?: (id: string, listName: string) => void;
-  onCreateWatchlist?: (name: string) => void;            
-  onGoToOverview?: () => void;
-  pinnedOverview?: string[];                  
-  onRemovePinned?: (id: string) => void;      
-  onPinToOverview?: () => void;               
+  watchlists?: Record<string, string[]>;
 }) => {
   const m = markets.find(x => x.id === selectedId) || markets[0];
+
+  const [liveData, setLiveData] = useState<PricePoint[] | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [liveNews, setLiveNews] = useState<NewsItem[] | null>(null);
+
+  useEffect(() => {
+    setLiveData(null);
+    setFetching(true);
+    fetch("http://localhost:8000/chart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker: m.ticker, period: range }),
+    })
+      .then(r => r.json())
+      .then((j: { data: PricePoint[] }) => setLiveData(j.data))
+      .catch(() => {})
+      .finally(() => setFetching(false));
+  }, [m.ticker, range]);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/news", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker: m.ticker }),
+    })
+      .then(r => r.json())
+      .then((j: { news: NewsItem[] }) => setLiveNews(j.news))
+      .catch(() => {});
+  }, [m.ticker]);
+
+  const [favQuotes, setFavQuotes] = useState<Record<string, { price: number; change: number; up: boolean; sparkline: PricePoint[] }>>({});
+
+  const favTickerList = (watchlists["Favorites"] ?? []) as string[];
+  useEffect(() => {
+    favTickerList.forEach(ticker => {
+      fetch("http://localhost:8000/chart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker, period: "1D" }),
+      })
+        .then(r => r.json())
+        .then((j: { data: PricePoint[] }) => {
+          if (!j.data?.length) return;
+          const open  = j.data[0].value;
+          const price = j.data[j.data.length - 1].value;
+          const change = ((price - open) / open) * 100;
+          setFavQuotes(prev => ({ ...prev, [ticker.toUpperCase()]: { price, change, up: change >= 0, sparkline: j.data } }));
+        })
+        .catch(() => {});
+    });
+  }, [favTickerList.join(",")]);
 
   const [showFib, setShowFib] = useState(false);
   const [showSR, setShowSR] = useState(false);
   const [showDMZ, setShowDMZ] = useState(false);
   
-  const [selectedList, setSelectedList] = useState("Favorites"); 
-  const [newListName, setNewListName] = useState("");           
-  
-  const calcSeries = m.data[range] || []; 
-  const history = (m as any).chartHistory;
+  const calcSeries = liveData ?? m.data[range] ?? [];
+  const refSeries  = liveData ? calcSeries : (m.data["1Y"]?.length > 0 ? m.data["1Y"] : calcSeries);
 
-  const drawSeries = history && history.length > 0 ? history : calcSeries;
-  const refSeries = m.data["1Y"] && m.data["1Y"].length > 0 ? m.data["1Y"] : drawSeries; 
-  
   let focusStartT = calcSeries.length > 0 ? calcSeries[0].t : undefined;
 
-  if (range === "1D" && drawSeries.length > 0) {
-    const lastDate = String(drawSeries[drawSeries.length - 1].t).split(" ")[0];
-    const firstCandleOfDay = drawSeries.find((d: any) => String(d.t).startsWith(lastDate));
+  if (range === "1D" && calcSeries.length > 0) {
+    const lastDate = String(calcSeries[calcSeries.length - 1].t).split(" ")[0];
+    const firstCandleOfDay = calcSeries.find((d: any) => String(d.t).startsWith(lastDate));
     if (firstCandleOfDay) focusStartT = firstCandleOfDay.t;
   }
 
@@ -99,37 +134,35 @@ export const Overview = ({
     { label: "SUP2", value: P - statRng * 0.618, color: "#00d46a" }
   ] as any : undefined;
 
-  const otherStocks = markets.filter(x => x.id !== selectedId && x.sector === "Equity");
-  const movers  = [...markets].sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 4);
+  const hasFavorites = favTickerList.length > 0;
+
+  // Build display items for all favorited tickers using live quotes
+  const favItems = favTickerList.map(ticker => {
+    const t = ticker.toUpperCase();
+    const base = markets.find(m => m.ticker.toUpperCase() === t);
+    const qt   = favQuotes[t];
+    return {
+      id:        base?.id ?? t.toLowerCase(),
+      ticker:    t,
+      label:     base?.label ?? t,
+      price:     qt?.price  ?? base?.price  ?? 0,
+      change:    qt?.change ?? base?.change ?? 0,
+      up:        qt ? qt.up : (base?.up ?? false),
+      sparkline: qt?.sparkline ?? base?.data["1D"] ?? [],
+    };
+  });
+
+  const gainers = (() => {
+    const pos = favItems.filter(x => x.change > 0).sort((a, b) => b.change - a.change);
+    if (pos.length >= 4) return pos.slice(0, 4);
+    const neg = favItems.filter(x => x.change <= 0).sort((a, b) => b.change - a.change); // least negative first
+    return [...pos, ...neg].slice(0, 4);
+  })();
+  const losers = [...favItems].filter(x => x.change < 0).sort((a, b) => a.change - b.change).slice(0, 4);
 
   return (
     <div className="page">
-      {!isSearchMode && (
-        <div className="ticker-strip" style={{ display: "flex", overflowX: "auto", flexWrap: "nowrap", paddingBottom: "8px", gap: "12px", scrollbarWidth: "thin" }}>
-          {markets.filter(t => !pinnedOverview || pinnedOverview.includes(t.id)).map(t => (
-            
-            <div key={t.id} onClick={() => onSelect(t.id)} className={`ticker-cell ${t.id === selectedId ? "active" : ""}`} style={{ position: "relative", minWidth: "150px", cursor: "pointer", flexShrink: 0 }}>
-              
-              {markets.filter(m => !pinnedOverview || pinnedOverview.includes(m.id)).length > 1 && (
-                <div 
-                  onClick={(e) => { e.stopPropagation(); onRemovePinned?.(t.id); }}
-                  style={{ position: "absolute", top: "4px", right: "8px", color: "var(--red)", fontSize: "16px", fontWeight: "bold", cursor: "pointer", opacity: 0.6, zIndex: 2 }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = "1"}
-                  onMouseLeave={e => e.currentTarget.style.opacity = "0.6"}
-                >
-                  ×
-                </div>
-              )}
-
-              <div className="tk-label">{t.ticker}</div>
-              <div className="tk-price">{fmtPrice(t.price)}</div>
-              <div className={t.up ? "tk-chg up" : "tk-chg down"}>{t.up ? "▲" : "▼"} {fmtPct(t.change)}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="grid-main">
+      <div>
         <div className="card chart-card" style={{ minWidth: 0 }}>
           
           <div className="chart-header">
@@ -140,9 +173,9 @@ export const Overview = ({
                 <Pill tone="neutral">{m.sector}</Pill>
               </div>
               <div className="chart-price-row">
-                <div className="chart-price">${fmtPrice(m.price)}</div>
-                <div className={m.up ? "chart-change-up" : "chart-change-down"}>
-                  {m.up ? "▲" : "▼"} {fmtPct(m.change)} <span className="chg-sub">today</span>
+                <div className="chart-price">${fmtPrice(last)}</div>
+                <div className={periodChg >= 0 ? "chart-change-up" : "chart-change-down"}>
+                  {periodChg >= 0 ? "▲" : "▼"} {fmtPct(periodChg)} <span className="chg-sub">{range}</span>
                 </div>
               </div>
             </div> 
@@ -162,7 +195,7 @@ export const Overview = ({
           </div>
 
           <div className="chart-container" style={{ position: "relative", width: "100%", minWidth: 0, overflow: "hidden" }}>
-            {isChartUpdating && (
+            {fetching && (
               <div style={{
                 position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
                 background: "rgba(10, 14, 10, 0.6)",
@@ -173,11 +206,11 @@ export const Overview = ({
               </div>
             )}
 
-            {drawSeries.length > 0 ? (
+            {calcSeries.length > 0 ? (
               <>
                  <LineChart 
                    key={range} 
-                   data={drawSeries} 
+                   data={calcSeries} 
                    focusStartT={focusStartT}
                    focusLength={calcSeries.length}
                    up={periodChg >= 0} 
@@ -204,101 +237,50 @@ export const Overview = ({
           </div>
         </div>
 
-        <div className="right-col">
-          {isSearchMode ? (
+        {hasFavorites && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "0" }}>
             <div className="card">
-              <div className="card-title">Search Actions</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "20px" }}>
-                
-                <div style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--mono)" }}>SELECT TOPIC:</div>
-                <select
-                  value={selectedList}
-                  onChange={e => setSelectedList(e.target.value)}
-                  style={{ padding: "10px", background: "var(--bg1)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: "4px", outline: "none", fontFamily: "var(--mono)" }}
-                >
-                  {Object.keys(watchlists).map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
-
-                <button onClick={() => onToggleWatch?.(selectedId, selectedList)} style={{
-                    padding: "14px", background: watchlists[selectedList]?.includes(selectedId) ? "var(--bg2)" : "rgba(0, 212, 106, 0.15)",
-                    color: watchlists[selectedList]?.includes(selectedId) ? "var(--text-secondary)" : "var(--green)",
-                    border: `1px solid ${watchlists[selectedList]?.includes(selectedId) ? "var(--border)" : "var(--green)"}`,
-                    borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontFamily: "var(--mono)", transition: "all 0.2s"
-                }}>
-                  {watchlists[selectedList]?.includes(selectedId) ? `★ REMOVE FROM ${selectedList.toUpperCase()}` : `☆ ADD TO ${selectedList.toUpperCase()}`}
-                </button>
-
-                <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-                  <input
-                    value={newListName}
-                    onChange={e => setNewListName(e.target.value)}
-                    placeholder="Create new topic..."
-                    style={{ flex: 1, padding: "10px", background: "var(--bg0)", color: "var(--text-primary)", border: "1px solid var(--border)", borderRadius: "4px", fontSize: "12px", outline: "none" }}
-                  />
-                  <button
-                    onClick={() => { if(newListName && onCreateWatchlist){ onCreateWatchlist(newListName); setSelectedList(newListName); setNewListName(""); } }}
-                    style={{ padding: "0 16px", background: "var(--bg2)", color: "var(--text-primary)", border: "1px solid var(--border)", cursor: "pointer", borderRadius: "4px", fontWeight: "bold" }}
-                  >
-                    NEW
-                  </button>
-                </div>
-
-                <hr style={{ border: "none", borderTop: "1px dashed var(--border)", margin: "12px 0" }} />
-
-                <button onClick={() => { onPinToOverview?.(); onGoToOverview?.(); }} style={{
-                    padding: "14px", background: "var(--bg2)", color: "var(--text-primary)",
-                    border: "1px solid var(--border)", borderRadius: "6px", cursor: "pointer",
-                    fontWeight: "bold", fontFamily: "var(--mono)", transition: "all 0.2s"
-                }}>
-                  {pinnedOverview?.includes(selectedId) ? "📊 ALREADY PINNED" : "📊 PIN TO OVERVIEW"}
-                </button>
+              <div className="card-title">Top Gainers</div>
+              <div className="movers">
+                {gainers.map(t => (
+                  <div key={t.id} className="mover-row" onClick={() => onSelect(t.id)}>
+                    <div>
+                      <div className="mover-tk">{t.ticker}</div>
+                      <div className="mover-name">{t.label}</div>
+                    </div>
+                    <Sparkline data={t.sparkline} up={t.up} width={64} height={22} />
+                    <div className="mover-right">
+                      <div className="mover-price">${fmtPrice(t.price)}</div>
+                      <div className={t.up ? "mover-chg up" : "mover-chg down"}>{fmtPct(t.change)}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          ) : (
-            <>
-              <div className="card">
-                <div className="card-title">Top Movers</div>
-                <div className="movers">
-                  {movers.map(t => (
-                    <div key={t.id} className="mover-row" onClick={() => onSelect(t.id)}>
-                      <div>
-                        <div className="mover-tk">{t.ticker}</div>
-                        <div className="mover-name">{t.label}</div>
-                      </div>
-                      <Sparkline data={t.data["1D"]} up={t.up} width={64} height={22} />
-                      <div className="mover-right">
-                        <div className="mover-price">${fmtPrice(t.price)}</div>
-                        <div className={t.up ? "mover-chg up" : "mover-chg down"}>{fmtPct(t.change)}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <div className="card">
+              <div className="card-title">Top Losers</div>
+              <div className="pulse-grid">
+                {losers.map(t => (
+                  <div key={t.id} className="pulse-cell" onClick={() => onSelect(t.id)}>
+                    <div className="pulse-label">{t.ticker}</div>
+                    <div className="pulse-price">${fmtPrice(t.price)}</div>
+                    <Sparkline data={t.sparkline} up={t.up} width="100%" height={28} />
+                    <div className={t.up ? "pulse-chg up" : "pulse-chg down"}>{fmtPct(t.change)}</div>
+                  </div>
+                ))}
               </div>
-              <div className="card">
-                <div className="card-title">Market Pulse</div>
-                <div className="pulse-grid">
-                  {otherStocks.slice(0, 4).map(t => (
-                    <div key={t.id} className="pulse-cell" onClick={() => onSelect(t.id)}>
-                      <div className="pulse-label">{t.ticker}</div>
-                      <div className="pulse-price">${fmtPrice(t.price)}</div>
-                      <Sparkline data={t.data["1W"]} up={t.up} width="100%" height={28} />
-                      <div className={t.up ? "pulse-chg up" : "pulse-chg down"}>{fmtPct(t.change)}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card news-card">
         <div className="card-title">
           <span>Newswire</span>
-          <span className="card-sub">Live · {news.length} items</span>
+          <span className="card-sub">Live · {(liveNews ?? news).length} items</span>
         </div>
         <div className="news-list">
-          {news.map((n, i) => (
+          {(liveNews ?? news).map((n, i) => (
             <div key={i} className="news-item">
               <div className="news-time">{n.time}</div>
               <div className="news-tag">{n.tag}</div>

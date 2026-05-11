@@ -1,0 +1,6 @@
+tests/cloudDBtest/myenv.env
+src/controller/myEnv.env
+src/controller/CLAUDE.md
+src/web-ui/CLAUDE.md
+src/.claude
+src/controller/myEnv.env

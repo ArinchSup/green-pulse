@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Coding\\\\Project\\\\green-pulse\\\\src\" -Recurse -Depth 2)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(go build *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Coding\\\\Project\\\\green-pulse\\\\src\\\\web-ui\\\\src\" -File -Force)",
+      "Bash(Select-Object Name)",
+      "Bash(Sort-Object Name)",
+      "Bash(Remove-Item *)",
+      "Bash(Get-ChildItem *)",
+      "Bash(npm run *)"
+    ]
+  }
+}

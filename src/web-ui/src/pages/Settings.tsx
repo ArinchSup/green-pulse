@@ -1,71 +1,48 @@
 // src/pages/Settings.tsx
-import { useState } from "react";
-import type { Alert } from "../types";
-import { Pill } from "../primitives";
-import { fmtPrice } from "../format";
+import type { User } from "../types";
 
-const Toggle = ({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) => (
-  <div className="form-row toggle-row" onClick={onClick}>
-    <div className="form-label">{label}</div>
-    <div className={`toggle ${on ? "on" : ""}`}><div className="toggle-knob" /></div>
-  </div>
-);
+type ThemeId = "green" | "terminal" | "blue";
 
-export const Settings = ({ alerts, setAlerts }: {
-  alerts: Alert[];
-  setAlerts: React.Dispatch<React.SetStateAction<Alert[]>>;
-}) => {
-  const [profile, setProfile] = useState({ name: "Alex Morgan", email: "alex@greenpulse.io", tier: "Pro" });
-  const [prefs, setPrefs] = useState({ notifications: true, sound: false, news: true, marketHours: true, twoFA: true, biometric: false });
-  const toggle = (k: keyof typeof prefs) => setPrefs(p => ({ ...p, [k]: !p[k] }));
-  const toggleAlert = (id: number) => setAlerts(a => a.map(x => x.id === id ? { ...x, active: !x.active } : x));
+const THEMES: { id: ThemeId; label: string; desc: string; accent: string; bg: string }[] = [
+  { id: "green",    label: "Green",             desc: "Default dark green",  accent: "#00d46a", bg: "#0d1210" },
+  { id: "terminal", label: "Dark Terminal",     desc: "Amber monochrome",    accent: "#ffb700", bg: "#0f0d01" },
+  { id: "blue",     label: "Blue Professional", desc: "Navy blue accent",    accent: "#4488ff", bg: "#0c1220" },
+];
 
-  return (
-    <div className="page">
-      <div className="grid-settings">
-        <div className="card">
-          <div className="card-title">Account</div>
-          <div className="form-row"><div className="form-label">Name</div>
-            <input className="form-input" value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} /></div>
-          <div className="form-row"><div className="form-label">Email</div>
-            <input className="form-input" value={profile.email} onChange={e => setProfile({...profile, email: e.target.value})} /></div>
-          <div className="form-row"><div className="form-label">Tier</div><div><Pill tone="up">{profile.tier}</Pill></div></div>
-          <div className="form-row"><div className="form-label">Member since</div><div className="dim mono">2024-08-12</div></div>
-        </div>
-        <div className="card">
-          <div className="card-title">Notifications</div>
-          <Toggle label="Push notifications"   on={prefs.notifications} onClick={() => toggle("notifications")} />
-          <Toggle label="Sound on price alert" on={prefs.sound}         onClick={() => toggle("sound")} />
-          <Toggle label="Newswire digest"      on={prefs.news}          onClick={() => toggle("news")} />
-          <Toggle label="Market hours only"    on={prefs.marketHours}   onClick={() => toggle("marketHours")} />
-        </div>
-        <div className="card">
-          <div className="card-title">Security</div>
-          <Toggle label="Two-factor auth" on={prefs.twoFA}     onClick={() => toggle("twoFA")} />
-          <Toggle label="Biometric login" on={prefs.biometric} onClick={() => toggle("biometric")} />
-          <div className="form-row"><div className="form-label">Active sessions</div><div className="dim mono">2 devices</div></div>
-          <button className="mini-btn danger" style={{ marginTop: 8 }}>Sign out everywhere</button>
-        </div>
-        <div className="card span-2">
-          <div className="card-title">Price Alerts</div>
-          <table className="data-table">
-            <thead><tr><th>Symbol</th><th>Condition</th><th>Target</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {alerts.map(a => (
-                <tr key={a.id}>
-                  <td className="bold">{a.ticker}</td>
-                  <td className="mono">{a.condition === ">" ? "above" : "below"}</td>
-                  <td className="num">${fmtPrice(a.target)}</td>
-                  <td><Pill tone={a.active ? "up" : "neutral"}>{a.active ? "armed" : "paused"}</Pill></td>
-                  <td style={{ textAlign: "right" }}>
-                    <button className="mini-btn" onClick={() => toggleAlert(a.id)}>{a.active ? "Pause" : "Arm"}</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+export const Settings = ({ user, onLogout, theme, setTheme }: {
+  user: User;
+  onLogout: () => void;
+  theme: string;
+  setTheme: (t: string) => void;
+}) => (
+  <div className="page">
+    <div className="settings-col">
+      <div className="card">
+        <div className="card-title">Account</div>
+        <div className="form-row">
+          <div className="form-label">Email</div>
+          <div className="dim mono">{user.email}</div>
         </div>
       </div>
+
+      <div className="card">
+        <div className="card-title">Theme</div>
+        <div className="theme-grid">
+          {THEMES.map(t => (
+            <button key={t.id} className={`theme-card ${theme === t.id ? "active" : ""}`} onClick={() => setTheme(t.id)}>
+              <div className="theme-preview" style={{ background: t.bg, borderColor: t.accent }}>
+                <div className="tp-bar" style={{ background: t.accent, width: "40%" }} />
+                <div className="tp-bar" style={{ background: t.accent, width: "70%", opacity: 0.35 }} />
+                <div className="tp-bar" style={{ background: t.accent, width: "55%", opacity: 0.2 }} />
+              </div>
+              <div className="theme-label">{t.label}</div>
+              <div className="theme-desc">{t.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <button className="mini-btn danger" onClick={onLogout}>Sign Out</button>
     </div>
-  );
-};
+  </div>
+);

@@ -32,7 +32,7 @@ func InitConfig() {
 	ConfigAuth = &auth.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		RedirectURL:  "http://localhost:8080/callback",
+		RedirectURL:  strings.TrimSpace(os.Getenv("REDIRECT_URL")),
 		Scopes:       []string{"https://www.googleapis.com/auth/userinfo.email"},
 		Endpoint:     authG.Endpoint,
 	}
@@ -98,7 +98,7 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frontendURL := "http://127.0.0.1:5500/src/controller/frontendtest/index.html"
+	frontendURL := strings.TrimSpace(os.Getenv("FRONTEND_URL"))
 
 	if state == stateSignup {
 		existingID, err := GetGoogleUserID(googleUser.ID)
@@ -107,38 +107,35 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to check user", http.StatusInternalServerError)
 			return
 		}
-
 		if existingID != "" {
-			http.Redirect(w, r, frontendURL+"?signup_status=exists&email="+url.QueryEscape(googleUser.Email), http.StatusSeeOther)
+			log.Printf("Signup rejected: account already exists for google_id %s", googleUser.ID)
+			http.Redirect(w, r, frontendURL+"?error=account_exists", http.StatusSeeOther)
 			return
 		}
-
 		newID, err := CreateGoogleUser(googleUser.ID, googleUser.Email)
 		if err != nil {
 			log.Printf("database create error: %v", err)
 			http.Error(w, "Failed to create user", http.StatusInternalServerError)
 			return
 		}
-
-		log.Printf("User signed up with internal id: %s", newID)
-		http.Redirect(w, r, frontendURL+"?signup_status=complete&email="+url.QueryEscape(googleUser.Email), http.StatusSeeOther)
+		log.Printf("New user signed up with internal id: %s", newID)
+		http.Redirect(w, r, frontendURL+"?token="+url.QueryEscape(token.AccessToken)+"&email="+url.QueryEscape(googleUser.Email)+"&user_id="+url.QueryEscape(newID), http.StatusSeeOther)
 		return
 	}
 
-	query := `
-		INSERT INTO users (google_id, email)
-		VALUES ($1, $2)
-		ON CONFLICT (google_id) DO UPDATE SET email = EXCLUDED.email
-		RETURNING id;
-	`
-
-	internalID, err := SyncGoogleUser(query, googleUser.ID, googleUser.Email)
+	// Sign in: reject if no account exists
+	existingID, err := GetGoogleUserID(googleUser.ID)
 	if err != nil {
-		log.Printf("database error: %v", err)
-		http.Error(w, "Failed to sync user", http.StatusInternalServerError)
+		log.Printf("database lookup error: %v", err)
+		http.Error(w, "Failed to check user", http.StatusInternalServerError)
+		return
+	}
+	if existingID == "" {
+		log.Printf("Signin rejected: no account found for google_id %s", googleUser.ID)
+		http.Redirect(w, r, frontendURL+"?error=no_account", http.StatusSeeOther)
 		return
 	}
 
-	log.Printf("User synced with internal id: %s", internalID)
-	http.Redirect(w, r, frontendURL+"?token="+url.QueryEscape(token.AccessToken)+"&email="+url.QueryEscape(googleUser.Email)+"&user_id="+url.QueryEscape(internalID), http.StatusSeeOther)
+	log.Printf("User signed in with internal id: %s", existingID)
+	http.Redirect(w, r, frontendURL+"?token="+url.QueryEscape(token.AccessToken)+"&email="+url.QueryEscape(googleUser.Email)+"&user_id="+url.QueryEscape(existingID), http.StatusSeeOther)
 }

@@ -55,3 +55,9 @@ export interface Alert {
 }
 
 export type Tone = "up" | "down" | "neutral" | "warn";
+
+export interface User {
+  token: string;
+  email: string;
+  userId: string;
+}

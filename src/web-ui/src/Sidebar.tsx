@@ -21,10 +21,5 @@ export const Sidebar = ({ activePage, setActivePage }: {
         </div>
       ))}
     </div>
-    <div className="sidebar-foot">
-      <div className="sf-row"><span>SESSION</span><span className="sf-val">live</span></div>
-      <div className="sf-row"><span>LATENCY</span><span className="sf-val">12ms</span></div>
-      <div className="sf-row"><span>BUILD</span><span className="sf-val">v0.9.4</span></div>
-    </div>
   </div>
 );
