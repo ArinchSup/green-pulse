@@ -90,7 +90,6 @@ export const findMarket = (ticker: string, list: Market[] = MARKETS): Market | u
 
 export const NavItems = [
   { id: "overview",  label: "Overview"  },
-  { id: "portfolio", label: "Portfolio" },
   { id: "watchlist", label: "Watchlist" },
   { id: "settings",  label: "Settings"  },
 ];

@@ -33,7 +33,7 @@ type StockRecord struct {
 }
 
 func LoadEnv() {
-	if err := readenv.Load("myEnv.env"); err != nil {
+	if err := readenv.Load(".env"); err != nil {
 		log.Println("error to load env file")
 		log.Printf("%v", err)
 	}

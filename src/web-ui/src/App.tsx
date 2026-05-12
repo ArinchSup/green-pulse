@@ -411,13 +411,9 @@ function App() {
       <div className="main">
         <div className="header">
           <div className="crumb">
-            <span className="slash">/</span>
-            <span className="seg">{activePage}</span>
-            {(activePage === "overview" || activePage === "search") && (
-              <>
-                <span className="slash"> / </span>
-                <span>{markets.find(m => m.id === selectedId)?.ticker}</span>
-              </>
+            <span className="seg">/{activePage}</span>
+            {activePage === "search" && (
+              <span>/{markets.find(m => m.id === selectedId)?.ticker}</span>
             )}
           </div>
           
