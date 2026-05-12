@@ -1,0 +1,27 @@
+Core Application Ports
+    80 - Frontend (Nginx reverse proxy & web UI)
+    8080 - Backend Go server (API endpoints: signin, signup, callback, watchlist, favorites, etc.)
+    8001 - AI Service (FastAPI - stock analysis, chat endpoints)
+    8000 - ChromaDB (Vector database for RAG)
+    11434 - Ollama (Local LLM service)
+
+Development Ports
+    5173 - Vite dev server (frontend development, allowed in CORS)
+
+Monitoring & Observability Ports
+    9090 - Prometheus (metrics collection & storage)
+    9100 - Node Exporter (system metrics)
+    8080 - cAdvisor (container metrics) Note: shares port with backend in different services
+    3000 - Grafana (monitoring dashboard - publicly exposed)
+
+Database Port
+    5432 - PostgreSQL/Supabase (cloud database connection)
+
+Infrastructure Ports
+    22 - SSH access (restricted to your IP)
+    443 - HTTPS (for secure web traffic)
+
+Summary: 
+    The application uses a microservices architecture with services
+    accessible on ports 80, 8000, 8001, 8080, 11434 
+    within the Docker network, external monitoring on 3000, and development server on 5173.
