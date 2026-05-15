@@ -63,6 +63,8 @@ services:
       dockerfile: Dockerfile
     expose:
       - "8080"
+    volumes:
+      - ./src/controller/.env:/app/myEnv.env:ro
     environment:
       - SUPABASEPASS=${SUPADBPASS}
       - DATABASE=${DATABASE}
