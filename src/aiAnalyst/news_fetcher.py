@@ -1,12 +1,36 @@
+import json
 import finnhub
 import datetime
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import requests
+from bs4 import BeautifulSoup
 from difflib import SequenceMatcher
-from aiAnalyst.config import FINNHUB_API_KEY, EXCLUDE_KEYWORDS
+#from aiAnalyst.config import FINNHUB_API_KEY, EXCLUDE_KEYWORDS
+from config import FINNHUB_API_KEY, EXCLUDE_KEYWORDS
+
+# 🌟 ตั้งค่า Ollama AI
+OLLAMA_URL = "http://localhost:11434/api/generate"
+AGENT1_MODEL = "llama3.1"  
+AGENT2_MODEL = "news-v3"   
 
 finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
+
+ALLOWED_TAGS = [
+    "#Earnings", "#Guidance", "#Business_Momentum",   
+    "#Product_Launch", "#Partnership", "#Merger_Acquisition", "#Leadership",          
+    "#Lawsuit_Regulation", "#Macro_Economy", "#Scandal", "#Other"                
+]
+
+def clean_text(text):
+    if not text: return ""
+    replacements = {
+        '\u2013': '-', '\u2014': '-', '\u2018': "'", '\u2019': "'",
+        '\u201c': '"', '\u201d': '"', '\u00a0': ' ', '\n': ' '
+    }
+    for k, v in replacements.items(): text = text.replace(k, v)
+    return text.strip()
 
 def is_relevant_news(headline, summary):
     safe_summary = summary if summary else ""
@@ -110,16 +134,51 @@ def fetch_stock_profile(ticker):
         if hist.empty: raise ValueError("No historical data")
         
         info = yf.Ticker(ticker).info
+        
+        # ==========================================
+        # Set 1: Fundamental Data (for Pillar 1)
+        # ==========================================
         sector = info.get('sector', 'Unknown')
         industry = info.get('industry', 'Unknown')
+        
+        raw_summary = info.get('longBusinessSummary', 'No description available.')
+        business_summary = raw_summary[:400] + "..." if len(raw_summary) > 400 else raw_summary
         
         pe_raw = info.get('trailingPE')
         pe = round(pe_raw, 2) if isinstance(pe_raw, (int, float)) else "N/A"
         fpe_raw = info.get('forwardPE')
         fpe = round(fpe_raw, 2) if isinstance(fpe_raw, (int, float)) else "N/A"
+        
         target_raw = info.get('targetMeanPrice')
         analyst_target = round(target_raw, 2) if isinstance(target_raw, (int, float)) else "N/A"
+        
+        market_cap = info.get('marketCap', 'N/A')
+        revenue_growth = info.get('revenueGrowth', 'N/A')
+        profit_margin = info.get('profitMargin', 'N/A')
+        roe = info.get('returnOnEquity', 'N/A')
+        debt_to_equity = info.get('debtToEquity', 'N/A')
+        free_cashflow = info.get('freeCashflow', 'N/A')
+        
+        def format_pct(val): return f"{round(val * 100, 2)}%" if isinstance(val, (int, float)) else "N/A"
+        def format_num(val): return f"${round(val / 1e9, 2)}B" if isinstance(val, (int, float)) else "N/A"
 
+        fundamental_data = {
+            "sector": sector, "industry": industry,
+            "business_summary": business_summary,
+            "current_price": float(round(hist['Close'].iloc[-1], 2)),
+            "pe": pe, "fpe": fpe, 
+            "analyst_target": analyst_target,
+            "market_cap": format_num(market_cap),
+            "revenue_growth": format_pct(revenue_growth),
+            "profit_margin": format_pct(profit_margin),
+            "roe": format_pct(roe),
+            "debt_to_equity": debt_to_equity,
+            "free_cashflow": format_num(free_cashflow)
+        }
+
+        # ==========================================
+        # Set 2: Technical Data (for Pillar 2)
+        # ==========================================
         current_close = float(round(hist['Close'].iloc[-1], 2))
         last_5_days = [float(x) for x in hist['Close'].tail(5).round(2).tolist()]
         
@@ -154,16 +213,151 @@ def fetch_stock_profile(ticker):
             
         macro_trend = get_macro_trend(datetime.date.today(), ticker)
 
-        return {
-            "sector": sector, "industry": industry,
-            "pe": pe, "fpe": fpe, "analyst_target": analyst_target,
-            "macro_trend": macro_trend, "current_price": current_close,
+        technical_data = {
+            "current_price": current_close,
+            "macro_trend": macro_trend,
             "last_5_days": last_5_days, "atr": atr_14, "volume_pct": vol_pct,
             "support_1": support_1, "support_2": swing_low,
             "resistance_1": resistance_1, "resistance_2": swing_high,
             "fib_1618": fib_1618, "fib_0786": fib_0786, "fib_0618": fib_0618, "fib_0382": fib_0382,
             "rsi": round(rsi_val, 2), "ema_200": ema_200, "macd": macd_status, "graph_trend": trend
         }
+
+        return {
+            "fundamental": fundamental_data,
+            "technical": technical_data
+        }
     except Exception as e:
         print(f"Error fetching profile for {ticker}: {e}")
-        return {"current_price": 0.0}
+        return {"fundamental": {}, "technical": {}}
+    
+def scrape_full_text(url):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        response = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        paragraphs = soup.find_all('p')
+        full_text = " ".join([p.get_text() for p in paragraphs])
+        
+        return clean_text(full_text[:3000]) if full_text else ""
+    except Exception as e:
+        print(f"Scrape Error for {url}: {e}")
+        return ""
+    
+def get_daily_price_change(ticker, target_date_str):
+    try:
+        start_date = pd.to_datetime(target_date_str) - datetime.timedelta(days=5)
+        end_date = pd.to_datetime(target_date_str) + datetime.timedelta(days=1)
+        
+        df = yf.Ticker(ticker).history(start=start_date, end=end_date)
+        if df.empty: return 0.0
+        
+        target_dt = pd.to_datetime(target_date_str).tz_localize(df.index.tz)
+        past_data = df.loc[df.index <= target_dt]
+        
+        if len(past_data) >= 2:
+            current_close = past_data['Close'].iloc[-1]
+            prev_close = past_data['Close'].iloc[-2]
+            pct_change = ((current_close - prev_close) / prev_close) * 100
+            return float(round(pct_change, 2))
+        return 0.0
+    except Exception as e:
+        print(f"Price Change Error for {ticker}: {e}")
+        return 0.0
+
+
+# ==========================================
+# AI Agents Integration
+# ==========================================
+
+def run_agent_1_reporter(full_text, ticker):
+    if not full_text.strip(): return None
+    prompt = f"""
+    You are a ruthless Financial Analyst focusing on {ticker}.
+    Read the article below.
+    
+    STEP 1: Classify the news. Is this article DIRECTLY about the fundamentals of {ticker}? 
+    If the article is primarily about another company, an analyst rating, or an opinion piece, the answer is FALSE.
+
+    STEP 2: Output EXACTLY this JSON structure:
+    {{
+        "is_fundamental_news": <true or false>,
+        "rejection_reason": "<Leave empty if true. If false, briefly state why>",
+        "summary": "<If true, write a punchy 2-line summary of the business impact. If false, leave empty>",
+        "tags": ["<If true, pick 1 or 2 tags STRICTLY from {ALLOWED_TAGS} ONLY. Do not invent new tags.>"]
+    }}
+    
+    Respond strictly in English. Output ONLY valid JSON.
+    Article: {full_text}
+    """
+    try:
+        res = requests.post(OLLAMA_URL, json={"model": AGENT1_MODEL, "prompt": prompt, "stream": False, "format": "json"}).json()
+        return json.loads(res["response"])
+    except Exception as e:
+        print(f"Agent 1 Error: {e}")
+        return None
+
+def run_news_v3_inference(ticker, summaries):
+    if not summaries: return None
+    
+    instruction = f"Analyze the impact of today's fundamental news on {ticker}. Identify the primary driver and PREDICT the 3D impact assessment."
+    input_str = json.dumps(summaries, indent=2, ensure_ascii=False)
+    
+    prompt = f"""You are an expert Chief Investment Editor and Quant Analyst.
+Below is an instruction that describes a task, paired with an input containing impact-focused summaries of fundamental news.
+Write a response that appropriately completes the request.
+CRITICAL RULE: You MUST output ONLY a valid JSON object. Do not include markdown blocks (like ```json), greetings, or comments.
+
+### Instruction:
+{instruction}
+
+### Input:
+{input_str}
+
+### Response:
+"""
+    try:
+        res = requests.post(OLLAMA_URL, json={"model": AGENT2_MODEL, "prompt": prompt, "stream": False, "format": "json"}).json()
+        return json.loads(res["response"])
+    except Exception as e:
+        print(f"news-v3 Error: {e}")
+        return None
+
+def get_live_news_impact(ticker, days_back=1):
+    print(f"📡 Fetching LIVE news for {ticker}...")
+    news_list = fetch_news(ticker, days_back=days_back)
+    
+    if not news_list:
+        return {"status": "No news today"}
+        
+    daily_summaries = []
+    
+    for news in news_list[:5]:
+        full_text = scrape_full_text(news.get('url', ''))
+        if not full_text: full_text = clean_text(news.get('headline', '') + " " + news.get('summary', ''))
+        
+        agent1_response = run_agent_1_reporter(full_text, ticker)
+        
+        if agent1_response and agent1_response.get('is_fundamental_news') is True:
+            valid_tags = [t for t in agent1_response.get('tags', []) if t in ALLOWED_TAGS]
+            if not valid_tags: valid_tags = ["#Other"]
+            
+            summary_to_keep = {
+                "summary": clean_text(agent1_response.get('summary', '')),
+                "tags": valid_tags
+            }
+            daily_summaries.append(summary_to_keep)
+            
+    if not daily_summaries:
+        return {"status": "No fundamental news found"}
+        
+    print(f"🧠 Running 'news-v3' analysis on {len(daily_summaries)} valid news items...")
+    impact_result = run_news_v3_inference(ticker, daily_summaries)
+    
+    return impact_result
+
+if __name__ == "__main__":
+    ticker = "AAPL"
+    result = get_live_news_impact(ticker)
+    print(result)
