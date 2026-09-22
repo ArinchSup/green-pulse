@@ -128,9 +128,24 @@ def calculate_rsi(prices, period=14):
     rs = up / down
     return float(round(100. - 100. / (1. + rs), 2))
 
-def fetch_stock_profile(ticker):
+def fetch_stock_profile(ticker, target_date_str=None):
     try:
-        hist = yf.Ticker(ticker).history(period="1y")
+        if target_date_str:
+            target_dt = pd.to_datetime(target_date_str)
+            start_date = target_dt - datetime.timedelta(days=365)
+            end_date = target_dt + datetime.timedelta(days=1)
+            hist = yf.Ticker(ticker).history(start=start_date, end=end_date)
+            
+            # Cut off data exactly at the target date to avoid future leakage
+            if hist.index.tz is not None:
+                target_dt_tz = target_dt.tz_localize(hist.index.tz)
+                hist = hist.loc[hist.index <= target_dt_tz]
+            else:
+                hist = hist.loc[hist.index <= target_dt]
+        else:
+            hist = yf.Ticker(ticker).history(period="1y")
+            target_dt = datetime.datetime.now()
+
         if hist.empty: raise ValueError("No historical data")
         
         info = yf.Ticker(ticker).info
@@ -180,23 +195,63 @@ def fetch_stock_profile(ticker):
         # Set 2: Technical Data (for Pillar 2)
         # ==========================================
         current_close = float(round(hist['Close'].iloc[-1], 2))
-        last_5_days = [float(x) for x in hist['Close'].tail(5).round(2).tolist()]
         
+        # 1. Last 5 Days OHLCV
+        last_5_days_df = hist.tail(5)
+        last_5_days_ohlcv = []
+        for date, row in last_5_days_df.iterrows():
+            last_5_days_ohlcv.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "open": round(row['Open'], 2),
+                "high": round(row['High'], 2),
+                "low": round(row['Low'], 2),
+                "close": round(row['Close'], 2),
+                "volume": int(row['Volume'])
+            })
+        
+        # 2. Volume Metrics
         avg_vol_20d = hist['Volume'].tail(20).mean()
         current_vol = hist['Volume'].iloc[-1]
         vol_pct = round((current_vol / avg_vol_20d) * 100) if avg_vol_20d > 0 else 100
         
+        # Volume Profile Trend
+        recent_10 = hist.tail(10)
+        up_vols = recent_10[recent_10['Close'] > recent_10['Open']]['Volume']
+        down_vols = recent_10[recent_10['Close'] < recent_10['Open']]['Volume']
+        avg_up_vol = up_vols.mean() if not up_vols.empty else 0
+        avg_down_vol = down_vols.mean() if not down_vols.empty else 0
+        
+        if avg_down_vol > avg_up_vol * 1.15:
+            vol_trend = "Distribution (Higher volume on down days)"
+        elif avg_up_vol > avg_down_vol * 1.15:
+            vol_trend = "Accumulation (Higher volume on up days)"
+        else:
+            vol_trend = "Neutral (Balanced volume flow)"
+
+        # 3. VWAP (20-day rolling)
+        typical_p = (hist['High'] + hist['Low'] + hist['Close']) / 3
+        vwap_20 = (typical_p * hist['Volume']).rolling(20).sum() / hist['Volume'].rolling(20).sum()
+        vwap_val = float(round(vwap_20.iloc[-1], 2)) if not pd.isna(vwap_20.iloc[-1]) else current_close
+
+        # 4. Bollinger Bands
+        sma_20 = hist['Close'].rolling(20).mean()
+        std_20 = hist['Close'].rolling(20).std()
+        bb_upper = float(round((sma_20 + (std_20 * 2)).iloc[-1], 2)) if not pd.isna(sma_20.iloc[-1]) else current_close
+        bb_lower = float(round((sma_20 - (std_20 * 2)).iloc[-1], 2)) if not pd.isna(sma_20.iloc[-1]) else current_close
+        bb_mid = float(round(sma_20.iloc[-1], 2)) if not pd.isna(sma_20.iloc[-1]) else current_close
+        
+        # 5. Support/Resistance & Fibonacci
         swing_low = float(round(hist['Low'].tail(30).min(), 2))
         swing_high = float(round(hist['High'].tail(30).max(), 2))
         support_1 = float(round(hist['Low'].tail(10).min(), 2))
         resistance_1 = float(round(hist['High'].tail(10).max(), 2))
         
         diff = swing_high - swing_low
-        fib_1618 = float(round(swing_high + (diff * 0.618), 2))
         fib_0786 = float(round(swing_high - (diff * 0.786), 2))
-        fib_0618 = float(round(swing_high - (diff * 0.382), 2))
-        fib_0382 = float(round(swing_high - (diff * 0.618), 2))
+        fib_0618 = float(round(swing_high - (diff * 0.618), 2))
+        fib_0382 = float(round(swing_high - (diff * 0.382), 2))
         
+        # 6. Technical Indicators
         ema_200 = float(round(hist['Close'].ewm(span=200, adjust=False).mean().iloc[-1], 2))
         atr_14 = float(calculate_atr(hist))
         rsi_val = float(calculate_rsi(hist['Close'].values))
@@ -205,22 +260,93 @@ def fetch_stock_profile(ticker):
         exp2 = hist['Close'].ewm(span=26, adjust=False).mean()
         macd = exp1 - exp2
         signal = macd.ewm(span=9, adjust=False).mean()
-        macd_status = "Bullish Crossover" if macd.iloc[-1] > signal.iloc[-1] else "Bearish"
+        macd_val = float(round(macd.iloc[-1], 2))
+        signal_val = float(round(signal.iloc[-1], 2))
         
-        if current_close > ema_200 and macd_status == "Bullish Crossover": trend = "Strong Uptrend"
-        elif current_close < ema_200 and macd_status == "Bearish": trend = "Downtrend"
-        else: trend = "Consolidation / Sideways"
-            
-        macro_trend = get_macro_trend(datetime.date.today(), ticker)
+        if macd_val > signal_val and macd_val > 0: macd_status = "Strong Bullish"
+        elif macd_val > signal_val and macd_val <= 0: macd_status = "Bullish Crossover (Recovery)"
+        elif macd_val < signal_val and macd_val > 0: macd_status = "Bearish Crossover (Pullback)"
+        else: macd_status = "Strong Bearish"
+        
+        if current_close > ema_200 and rsi_val > 50: trend = "Uptrend"
+        elif current_close < ema_200 and rsi_val < 50: trend = "Downtrend"
+        else: trend = "Sideways / Consolidation"
 
+        """
+        # 7. NASDAQ (QQQ) Last 5 Days Context
+        try:
+            qqq_df = yf.Ticker("QQQ").history(period="10d")
+            qqq_last_5 = qqq_df.tail(5)
+            nasdaq_last_5_days = []
+            for date, row in qqq_last_5.iterrows():
+                 nasdaq_last_5_days.append({
+                    "date": date.strftime('%Y-%m-%d'),
+                    "open": round(row['Open'], 2),
+                    "high": round(row['High'], 2),
+                    "low": round(row['Low'], 2),
+                    "close": round(row['Close'], 2)
+                })
+        except Exception:
+            nasdaq_last_5_days = []
+
+        try:
+            if target_date_str:
+                start_qqq = target_dt - datetime.timedelta(days=30)
+                qqq_df = yf.Ticker("QQQ").history(start=start_qqq, end=target_dt + datetime.timedelta(days=1))
+                if qqq_df.index.tz is not None: qqq_df.index = qqq_df.index.tz_convert(None)
+                
+                target_dt_naive = target_dt
+                if target_dt_naive.tzinfo is not None: target_dt_naive = target_dt_naive.tz_convert(None)
+                
+                qqq_valid = qqq_df.loc[qqq_df.index <= target_dt_naive]
+                qqq_last_5 = qqq_valid.tail(5)
+            else:
+                qqq_df = yf.Ticker("QQQ").history(period="10d")
+                qqq_last_5 = qqq_df.tail(5)
+                
+            nasdaq_last_5_days = []
+            for date, row in qqq_last_5.iterrows():
+                 nasdaq_last_5_days.append({
+                    "date": date.strftime('%Y-%m-%d'),
+                    "open": round(row['Open'], 2),
+                    "high": round(row['High'], 2),
+                    "low": round(row['Low'], 2),
+                    "close": round(row['Close'], 2)
+                })
+        except Exception:
+            nasdaq_last_5_days = []
+        """
+            
+        # 8. Assemble matching training format
         technical_data = {
+            "timeframe": "Daily (1D)",
             "current_price": current_close,
-            "macro_trend": macro_trend,
-            "last_5_days": last_5_days, "atr": atr_14, "volume_pct": vol_pct,
-            "support_1": support_1, "support_2": swing_low,
-            "resistance_1": resistance_1, "resistance_2": swing_high,
-            "fib_1618": fib_1618, "fib_0786": fib_0786, "fib_0618": fib_0618, "fib_0382": fib_0382,
-            "rsi": round(rsi_val, 2), "ema_200": ema_200, "macd": macd_status, "graph_trend": trend
+            # "nasdaq_last_5_days_ohlc": nasdaq_last_5_days,
+            "last_5_days_ohlcv": last_5_days_ohlcv,
+            "graph_trend": trend,
+            "ema_200": ema_200,
+            "vwap_20d": vwap_val,
+            "bollinger_bands": {
+                "upper": bb_upper,
+                "mid_sma20": bb_mid,
+                "lower": bb_lower
+            },
+            "rsi_14": round(rsi_val, 2),
+            "macd_status": macd_status,
+            "volume_vs_avg_20d": f"{vol_pct}%",
+            "volume_profile_trend": vol_trend,
+            "atr_14": atr_14,
+            "key_levels": {
+                "support_1": support_1,
+                "support_2_swing_low": swing_low,
+                "resistance_1": resistance_1,
+                "resistance_2_swing_high": swing_high
+            },
+            "fibonacci": {
+                "fib_0.382": fib_0382,
+                "fib_0.618": fib_0618,
+                "fib_0.786": fib_0786
+            }
         }
 
         return {
