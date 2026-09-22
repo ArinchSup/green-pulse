@@ -7,7 +7,7 @@ OLLAMA_URL = "http://localhost:11434/api/generate"
 
 def run_pillar1_fundamental_analyst(ticker, stock_profile, macro_trend, news_impact):
     """
-    Pillar 1: The Fundamental Analyst (อัปเกรดระบบล็อคตรรกะ Deterministic)
+    Pillar 1: The Fundamental Analyst 
     """
     if not news_impact or "status" in news_impact:
         news_text = "NO SIGNIFICANT FUNDAMENTAL NEWS RECENTLY. Focus your analysis ENTIRELY on the valuation metrics, financial health, and macro trends."
