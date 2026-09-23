@@ -37,7 +37,7 @@ jobs:
           image-ref: ${{ env.ECR_REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: '0'
+          exit-code: '1'
 
       - name: Push
         run: docker push $ECR_REGISTRY/$IMAGE:${{ github.sha }}
