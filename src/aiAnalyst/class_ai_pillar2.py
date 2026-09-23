@@ -12,13 +12,13 @@ from trade_config import compute_levels, HORIZON_CONFIGS, describe_geometry, GEO
 # CONFIGURATION
 # ==========================================
 ACTIVE_HORIZON       = "MID"
-CONFIDENCE_THRESHOLD = 0.35   # set from class_xgboost.py threshold sweep
+CONFIDENCE_THRESHOLD = 0.65   # set from class_xgboost.py threshold sweep
 TURN_ON_PYTHON_FILTER = False   # True = reject setups whose R:R < min_rr
 
 CURRENT_DIR  = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ""))
 
-CHOSEN_MODEL_PATH = os.path.join(PROJECT_ROOT, "class_model", "xgboost_mid_v39.joblib")
+CHOSEN_MODEL_PATH = os.path.join(PROJECT_ROOT, "class_model", "xgboost_mid_v40.joblib")
 
 # ==========================================
 # MODEL LOADING 
@@ -89,16 +89,17 @@ def run_pillar2_technical_quant(ticker, target_date_str=None):
     predicted  = int(classes[int(np.argmax(proba))])
     label_map  = {0: "Bearish", 1: "Bullish"}
     sentiment  = label_map.get(predicted, "Bearish")
-    confidence = round(prob_dict.get(predicted, 0.0), 4)
+    confidence = round(bull_prob, 4)
 
     # ── 3. Confidence gate ───────────────────────────────────────
     # Threshold applies to the BULLISH probability specifically, not to
     # whichever class happened to win argmax.
+    # ── 3. Confidence gate ───────────────────────────────────────
     should_trade = bull_prob >= CONFIDENCE_THRESHOLD
 
     if not should_trade:
         setup_type = (f"Avoid (Low Confidence: {bull_prob:.2f})"
-                      if sentiment == "Bullish" else "Avoid / No Trade")
+                    if sentiment == "Bullish" else "Avoid / No Trade")
         sentiment  = "Neutral" if sentiment == "Bullish" else sentiment
     else:
         setup_type = f"Classifier Breakout (Conf: {bull_prob:.2f})"

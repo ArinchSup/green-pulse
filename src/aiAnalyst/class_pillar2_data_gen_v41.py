@@ -1,3 +1,19 @@
+# class_pillar2_data_gen_v41.py - Pillar 2 dataset generator, V41
+#
+# Changes from V40 (class_pillar2_data_gen_v40_cutoff.py):
+#   1. LABEL_MODE = BEAT_BENCHMARK vs QQQ: "did this stock beat QQQ over the next 60 trading
+#      days?" instead of "+20% before -12%". The old label mostly measured market direction,
+#      which single-stock technicals can't predict (V40's out-of-sample AUC was 0.505).
+#   2. The benchmark's return is now measured from the SAME signal-day close as the stock's
+#      (it used to start one bar later, which gave every stock a free extra day).
+#   3. Relative-strength inputs (stock return and stock-minus-QQQ return over 20/60/120 days),
+#      computed only from bars up to the signal date, are added to each snapshot.
+#   4. MID history is 10 years, so earlier training cutoffs (walk-forward windows) have data.
+#   5. Command-line options, so walk-forward runs need no edits:
+#        python class_pillar2_data_gen_v41.py                       (cutoff 2025-06-27, 5000 rows)
+#        python class_pillar2_data_gen_v41.py --train-end 2023-09-29 --size 5000
+#
+import argparse
 import os
 import json
 import random
@@ -6,6 +22,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
+from pillar2_v41_features import relative_strength
 from trade_config import (compute_levels, walk_trade, df_to_bars,
                           describe_geometry, GEOMETRY_MODE)
 
@@ -14,7 +31,7 @@ from trade_config import (compute_levels, walk_trade, df_to_bars,
 # ==========================================
 HORIZON = "MID"                  # "SHORT" | "MID" | "LONG"
 
-TARGET_DATASET_SIZE = 6000      
+TARGET_DATASET_SIZE = 5000      
 # ── Class balance ────────────────────────────────────────────────
 # True  = accept whatever the market produces. The model then sees the
 #         same base rate it will meet in production, so its probabilities
@@ -34,12 +51,18 @@ TARGET_BULLISH_PCT = 0.40        # only used when USE_NATURAL_RATE = False
 # "BEAT_BENCHMARK" — did the stock outperform SPY over the same window?
 #                    Strips market beta out. Base rate lands near 50% by
 #                    construction, so any lift is unambiguous skill.
-LABEL_MODE       = "TP_SL"       # "TP_SL" | "BEAT_BENCHMARK"
-BENCHMARK_TICKER = "SPY"
+LABEL_MODE       = "BEAT_BENCHMARK"   # "TP_SL" | "BEAT_BENCHMARK"   (V41: BEAT_BENCHMARK)
+BENCHMARK_TICKER = "QQQ"              # V41: QQQ suits a growth/tech universe better than SPY
 
 # Constrain sampling to the same window the backtest uses. Training on 5
 # years while grading on 3.3 means the two measure different regimes.
 MAX_LOOKBACK_DAYS = 1200         # None = use all available history
+
+# Out-of-sample cutoff: no training signal is dated after this. Labels look 60 trading
+# days (~90 calendar days) ahead, so this must sit ~92 days before the first backtest
+# signal. Backtest END_DATE 2026-09-22 samples signals from 2025-09-27, hence 2025-06-27.
+# The window is anchored here instead of datetime.now(), so reruns give the same dataset.
+TRAIN_END_DATE = datetime.datetime(2025, 6, 27)
 
 RANDOM_SEED = 42                 # reproducible generation
 
@@ -63,8 +86,13 @@ def _config_tag() -> str:
         return f"bench{BENCHMARK_TICKER.lower()}"
     return "tpsl_resolved" if EXPIRED_AS == "SKIP" else "tpsl_all"
 
-OUTPUT_FILE = f"dataset_pillar2_{HORIZON.lower()}_v40.json"
-GROWTH_WEIGHT = 0.75   # 60% growth, 40% defensive
+def _output_file():
+    return (f"dataset_pillar2_{HORIZON.lower()}_v41_{BENCHMARK_TICKER.lower()}"
+            f"_cut{TRAIN_END_DATE:%Y%m%d}.json")
+
+
+OUTPUT_FILE = _output_file()   # recomputed in parse_cli() when --train-end is given
+GROWTH_WEIGHT = 0.75   # 75% growth, 25% defensive
 
 # ==========================================
 # HORIZON CONFIGS
@@ -90,7 +118,7 @@ HORIZON_CONFIGS = {
         "max_stop_pct":    0.15,
         "min_profit_pct":  0.08,
         "min_rr":          1.5,
-        "history_period":  "5y",     
+        "history_period":  "10y",    # V41: was 5y; room for earlier walk-forward cutoffs
         "min_past_bars":   250,
         "prompt_context":  "Mid-Term (1-3 months, using a Daily 1D Chart)",
     },
@@ -551,9 +579,12 @@ def sample_candidate(ticker: str, config: dict, used_keys: set):
 
     # Only sample dates the backtest could also sample, so the training
     # distribution and the evaluation distribution cover the same regimes
-    if MAX_LOOKBACK_DAYS is not None:
-        cutoff = datetime.datetime.now() - datetime.timedelta(days=MAX_LOOKBACK_DAYS)
-        valid_range = [i for i in valid_range if df_full.index[i] >= cutoff]
+    # The signal date is the last bar of df_past, i.e. index[i - 1].
+    window_start = (TRAIN_END_DATE - datetime.timedelta(days=MAX_LOOKBACK_DAYS)
+                    if MAX_LOOKBACK_DAYS is not None else None)
+    valid_range = [i for i in valid_range
+                   if df_full.index[i - 1] <= TRAIN_END_DATE
+                   and (window_start is None or df_full.index[i - 1] >= window_start)]
 
     valid_range = list(valid_range)
     if len(valid_range) < 1:
@@ -581,13 +612,20 @@ def sample_candidate(ticker: str, config: dict, used_keys: set):
     except Exception:
         return None, None
 
+    # V41: relative strength vs the benchmark, using only bars up to the signal date
+    bench = get_benchmark_series(config)
+    if bench is None:
+        return None, None
+    snapshot["relative_strength"] = relative_strength(df_past["Close"],
+                                                      bench[bench.index <= signal_date])
+
     # Optional sampling prefilter — NOT part of the label
     if USE_STRUCTURAL_PREFILTER and not passes_structural_filter(snapshot):
         return None, None
 
     if LABEL_MODE == "BEAT_BENCHMARK":
         label, info = compute_benchmark_relative_label(
-            snapshot, df_future, config, df_future.index[0])
+            snapshot, df_future, config, signal_date)   # V41: same start as the stock
     else:
         label, info = compute_outcome_label(snapshot, df_future, config)
     if label == "SKIP":
@@ -642,8 +680,10 @@ def main():
         print(f"Bullish quota:      {bull_quota} ({TARGET_BULLISH_PCT:.0%})")
         print(f"Bearish quota:      {bear_quota} ({1-TARGET_BULLISH_PCT:.0%})")
     print(f"Label mode:         {LABEL_MODE}")
-    print(f"Sample window:      last {MAX_LOOKBACK_DAYS} days"
-          if MAX_LOOKBACK_DAYS else "Sample window:      all history")
+    print(f"Benchmark:          {BENCHMARK_TICKER}")
+    print(f"Output file:        {OUTPUT_FILE}")
+    print(f"Sample window:      {MAX_LOOKBACK_DAYS or 'all'} days up to "
+          f"{TRAIN_END_DATE:%Y-%m-%d} (later signals excluded)")
     print(f"Structural filter:  {'ON (sampling only)' if USE_STRUCTURAL_PREFILTER else 'OFF ← recommended'}")
     print(f"Expired handling:   {EXPIRED_AS}")
     print(f"Window:             {config['lookahead_bars']} bars")
@@ -770,13 +810,25 @@ def main():
         print(f"   Lower TARGET_DATASET_SIZE or widen MAX_LOOKBACK_DAYS.")
 
     print(f"\nSaved: {OUTPUT_FILE}")
-    print(f"\nNext steps:")
-    print(f"  1. In class_xgboost_v5.py set:")
-    print(f"       DATASET_FILE = '{OUTPUT_FILE}'")
-    print(f"       label_map    = {{'Bearish': 0, 'Avoid / No Trade': 0, 'Bullish': 1}}")
-    print(f"  2. Rows are already sorted by date — TimeSeriesSplit will be valid.")
-    print(f"  3. candlestick_patterns are already included — no conversion needed.")
+    print(f"\nNext step:")
+    print(f"  python class_xgboost_v41.py --dataset {OUTPUT_FILE}")
+
+
+def parse_cli():
+    """--train-end / --size / --lookback-days, so walk-forward runs need no edits."""
+    global TRAIN_END_DATE, TARGET_DATASET_SIZE, MAX_LOOKBACK_DAYS, OUTPUT_FILE
+    p = argparse.ArgumentParser(description="Pillar 2 V41 dataset generator")
+    p.add_argument("--train-end", default=TRAIN_END_DATE.strftime("%Y-%m-%d"),
+                   help="last signal date allowed in the dataset (YYYY-MM-DD)")
+    p.add_argument("--size", type=int, default=TARGET_DATASET_SIZE)
+    p.add_argument("--lookback-days", type=int, default=MAX_LOOKBACK_DAYS)
+    a = p.parse_args()
+    TRAIN_END_DATE = datetime.datetime.strptime(a.train_end, "%Y-%m-%d")
+    TARGET_DATASET_SIZE = a.size
+    MAX_LOOKBACK_DAYS = a.lookback_days
+    OUTPUT_FILE = _output_file()
 
 
 if __name__ == "__main__":
+    parse_cli()
     main()

@@ -5,12 +5,12 @@ import yfinance as yf
 import requests
 import io
 
-random.seed(56)
+random.seed(69)
 
 from class_ai_pillar2 import run_pillar2_technical_quant
 from class_ai_pillar1_funda_helper import give_me_foundation
 
-SEARCH_ATTEMPTS = 1000
+SEARCH_ATTEMPTS = 100
 MAX_FORWARD_DAYS = 90
 MIN_CONFIDENCE = 0.65  
 

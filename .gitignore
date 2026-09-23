@@ -10,3 +10,7 @@ pillar*
 relabel_dataset.py
 unified_backtest_log.json
 cleaned*
+*.png
+LOG/
+backtest_runs/
+price_cache/
