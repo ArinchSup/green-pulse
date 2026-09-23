@@ -14,7 +14,7 @@ from trade_config import (compute_levels, walk_trade, df_to_bars,
 # ==========================================
 HORIZON = "MID"                  # "SHORT" | "MID" | "LONG"
 
-TARGET_DATASET_SIZE = 6000      
+TARGET_DATASET_SIZE = 5000      
 # ── Class balance ────────────────────────────────────────────────
 # True  = accept whatever the market produces. The model then sees the
 #         same base rate it will meet in production, so its probabilities
@@ -41,6 +41,12 @@ BENCHMARK_TICKER = "SPY"
 # years while grading on 3.3 means the two measure different regimes.
 MAX_LOOKBACK_DAYS = 1200         # None = use all available history
 
+# Out-of-sample cutoff: no training signal is dated after this. Labels look 60 trading
+# days (~90 calendar days) ahead, so this must sit ~92 days before the first backtest
+# signal. Backtest END_DATE 2026-09-22 samples signals from 2025-09-27, hence 2025-06-27.
+# The window is anchored here instead of datetime.now(), so reruns give the same dataset.
+TRAIN_END_DATE = datetime.datetime(2025, 6, 27)
+
 RANDOM_SEED = 42                 # reproducible generation
 
 # ── The critical toggle ───────────────────────────────────────────
@@ -63,8 +69,8 @@ def _config_tag() -> str:
         return f"bench{BENCHMARK_TICKER.lower()}"
     return "tpsl_resolved" if EXPIRED_AS == "SKIP" else "tpsl_all"
 
-OUTPUT_FILE = f"dataset_pillar2_{HORIZON.lower()}_v40.json"
-GROWTH_WEIGHT = 0.75   # 60% growth, 40% defensive
+OUTPUT_FILE = f"dataset_pillar2_{HORIZON.lower()}_v40_cut{TRAIN_END_DATE:%Y%m%d}.json"
+GROWTH_WEIGHT = 0.75   # 75% growth, 25% defensive
 
 # ==========================================
 # HORIZON CONFIGS
@@ -551,9 +557,12 @@ def sample_candidate(ticker: str, config: dict, used_keys: set):
 
     # Only sample dates the backtest could also sample, so the training
     # distribution and the evaluation distribution cover the same regimes
-    if MAX_LOOKBACK_DAYS is not None:
-        cutoff = datetime.datetime.now() - datetime.timedelta(days=MAX_LOOKBACK_DAYS)
-        valid_range = [i for i in valid_range if df_full.index[i] >= cutoff]
+    # The signal date is the last bar of df_past, i.e. index[i - 1].
+    window_start = (TRAIN_END_DATE - datetime.timedelta(days=MAX_LOOKBACK_DAYS)
+                    if MAX_LOOKBACK_DAYS is not None else None)
+    valid_range = [i for i in valid_range
+                   if df_full.index[i - 1] <= TRAIN_END_DATE
+                   and (window_start is None or df_full.index[i - 1] >= window_start)]
 
     valid_range = list(valid_range)
     if len(valid_range) < 1:
@@ -642,8 +651,8 @@ def main():
         print(f"Bullish quota:      {bull_quota} ({TARGET_BULLISH_PCT:.0%})")
         print(f"Bearish quota:      {bear_quota} ({1-TARGET_BULLISH_PCT:.0%})")
     print(f"Label mode:         {LABEL_MODE}")
-    print(f"Sample window:      last {MAX_LOOKBACK_DAYS} days"
-          if MAX_LOOKBACK_DAYS else "Sample window:      all history")
+    print(f"Sample window:      {MAX_LOOKBACK_DAYS or 'all'} days up to "
+          f"{TRAIN_END_DATE:%Y-%m-%d} (later signals excluded)")
     print(f"Structural filter:  {'ON (sampling only)' if USE_STRUCTURAL_PREFILTER else 'OFF ← recommended'}")
     print(f"Expired handling:   {EXPIRED_AS}")
     print(f"Window:             {config['lookahead_bars']} bars")

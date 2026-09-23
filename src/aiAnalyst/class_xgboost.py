@@ -14,8 +14,8 @@ from trade_config import describe_geometry, GEOMETRY_MODE, FIXED_TP_PCT, FIXED_S
 # ==========================================
 # CONFIGURATION
 # ==========================================
-DATASET_FILE   = "dataset_pillar2_mid_v39.json"
-MODEL_FILENAME = "xgboost_mid_v39.joblib"
+DATASET_FILE   = "dataset_pillar2_mid_v40_cut20250627.json"
+MODEL_FILENAME = "xgboost_mid_v40.joblib"
 BEST_N         = 300
 
 # ── Class weighting ──────────────────────────────────────────────
