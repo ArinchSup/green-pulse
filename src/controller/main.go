@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -16,18 +17,18 @@ func ExitHandler(w http.ResponseWriter, r *http.Request) {
 	os.Exit(0)
 }
 
+func ok(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
+}
+
 func startServer() {
-	log.Println("Start server")
+	log.Println("Start Server")
 	mux := http.NewServeMux()
 
-	//handler functions
-	mux.HandleFunc("/signin", function.SigninHandler)
-	mux.HandleFunc("/signup", function.SignupHandler)
-	mux.HandleFunc("/callback", function.CallbackHandler)
-	mux.HandleFunc("/watchlist", function.WatchlistHandler)
-	mux.HandleFunc("/favorites", function.FavoritesHandler)
-	mux.HandleFunc("/exit", ExitHandler)
-	//-----------------
+	mux.HandleFunc("GET /healthz", ok)
+	mux.HandleFunc("GET /readyz", ok)
+	mux.HandleFunc("/api/watchlist", function.WatchlistHandler)
 
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Printf("Server error due to %v", err)
@@ -78,23 +79,24 @@ func scheduleStockRefreshes() {
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 	if len(os.Args) < 2 {
 		log.Println("Usage: go run main.go <startserver|connectdb>")
 		return
 	}
 	arg := strings.ToLower(os.Args[1])
 	switch arg {
-	case "startserver":
-		function.LoadEnv()
-		function.InitConfig()
+	case "server", "startserver":
 		db := function.ConnectDB()
 		defer db.Close()
-		scheduleStockRefreshes()
 		startServer()
 	case "connectdb":
 		function.LoadEnv()
 		db := function.ConnectDB()
 		defer db.Close()
+	case "migrate":
+		runMigrate()
 	default:
 		log.Printf("Unknown command: %s", arg)
 	}

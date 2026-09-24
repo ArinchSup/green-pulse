@@ -3,9 +3,7 @@ package function
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,20 +38,22 @@ func LoadEnv() {
 }
 
 func ConnectDB() *pgxpool.Pool {
-	GetPass := os.Getenv("SUPABASEPASS")
-	password := url.QueryEscape(GetPass)
-
-	dbURL := fmt.Sprintf(
-		"postgresql://postgres.wrqibbqyjukbdzobmtkf:%s@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres", password)
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL is not set")
+	}
 
 	config, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
 		log.Fatalf("Failed to parse db config: %v", err)
 	}
-
-	// Supabase transaction pooler requires these
+	// Simple protocol: kept for the demo because the old queries were written
+	// and tested with it. The session pooler (port 5432) does not require it.
 	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	config.MaxConns = 10
+	// Session pooler: every open connection holds a real Postgres connection,
+	// so keep each pod's share small.
+
+	config.MaxConns = 4
 	config.MinConns = 1
 
 	dbPool, err := pgxpool.NewWithConfig(context.Background(), config)
@@ -61,12 +61,12 @@ func ConnectDB() *pgxpool.Pool {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	// Force a real connection to verify
+	//Force a real connection to verify
 	if err := dbPool.Ping(context.Background()); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
-	fmt.Println("Successfully connected to the database")
+	log.Println("Successfully connected to the database")
 	pool = dbPool
 	return dbPool
 }
@@ -199,7 +199,6 @@ func TrackedSymbols() ([]string, error) {
 		return nil, errors.New("database pool is not initialized")
 	}
 	print("working 3\n")
-
 
 	rows, err := pool.Query(context.Background(), "SELECT DISTINCT symbol FROM stocks ORDER BY symbol")
 	if err != nil {
