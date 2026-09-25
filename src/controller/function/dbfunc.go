@@ -38,21 +38,24 @@ func LoadEnv() {
 }
 
 func ConnectDB() *pgxpool.Pool {
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL is not set")
+	}
+	if !strings.HasPrefix(dbURL, "postgresql://") && !strings.HasPrefix(dbURL, "postgres://") {
+		log.Fatal("DATABASE_URL must start with postgresql:// (check for quotes or extra characters around it)")
 	}
 
 	config, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
 		log.Fatalf("Failed to parse db config: %v", err)
 	}
+
 	// Simple protocol: kept for the demo because the old queries were written
 	// and tested with it. The session pooler (port 5432) does not require it.
 	config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 	// Session pooler: every open connection holds a real Postgres connection,
 	// so keep each pod's share small.
-
 	config.MaxConns = 4
 	config.MinConns = 1
 
@@ -61,7 +64,7 @@ func ConnectDB() *pgxpool.Pool {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	//Force a real connection to verify
+	// Force a real connection to verify
 	if err := dbPool.Ping(context.Background()); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
@@ -133,7 +136,7 @@ func StockExists(symbol string) (bool, error) {
 	var exists bool
 	err := pool.QueryRow(
 		context.Background(),
-		"SELECT EXISTS (SELECT 1 FROM stocks WHERE UPPER(symbol) = UPPER($1))",
+		"SELECT EXISTS (SELECT 1 FROM app.stocks WHERE UPPER(symbol) = UPPER($1))",
 		symbol,
 	).Scan(&exists)
 	if err != nil {
@@ -152,7 +155,7 @@ func GetStockRecords(symbol string) ([]StockRecord, error) {
 		context.Background(),
 		`
 			SELECT symbol, date, open, high, low, close, volume, dividends, stock_splits
-			FROM stocks
+			FROM app.stocks
 			WHERE UPPER(symbol) = UPPER($1)
 			ORDER BY date DESC
 		`,
@@ -200,7 +203,7 @@ func TrackedSymbols() ([]string, error) {
 	}
 	print("working 3\n")
 
-	rows, err := pool.Query(context.Background(), "SELECT DISTINCT symbol FROM stocks ORDER BY symbol")
+	rows, err := pool.Query(context.Background(), "SELECT DISTINCT symbol FROM app.stocks ORDER BY symbol")
 	if err != nil {
 		print("error here\n")
 		return nil, err

@@ -1,6 +1,8 @@
 -- 0001: daily price history for the demo backend.
 -- Columns match StockRecord in function/dbfunc.go.
-CREATE TABLE IF NOT EXISTS stocks (
+CREATE SCHEMA IF NOT EXISTS app;
+
+CREATE TABLE IF NOT EXISTS app.stocks (
     symbol       text             NOT NULL,
     date         date             NOT NULL,
     open         double precision,
@@ -12,5 +14,3 @@ CREATE TABLE IF NOT EXISTS stocks (
     stock_splits double precision,
     PRIMARY KEY (symbol, date)
 );
-
-ALTER TABLE stocks ENABLE ROW LEVEL SECURITY;

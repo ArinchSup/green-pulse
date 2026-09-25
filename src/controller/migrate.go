@@ -65,17 +65,17 @@ func applyOne(ctx context.Context, db *pgxpool.Pool, name string) error {
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", migrateLockKey); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+	if _, err := tx.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS app;
+	CREATE TABLE IF NOT EXISTS app.schema_migrations (
 		version    text PRIMARY KEY,
 		applied_at timestamptz NOT NULL DEFAULT now()
-	);
-	ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY`); err != nil {
+	)`); err != nil {
 		return err
 	}
 
 	var applied bool
 	err = tx.QueryRow(ctx,
-		"SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)", version,
+		"SELECT EXISTS (SELECT 1 FROM app.schema_migrations WHERE version = $1)", version,
 	).Scan(&applied)
 	if err != nil {
 		return err
@@ -89,7 +89,7 @@ func applyOne(ctx context.Context, db *pgxpool.Pool, name string) error {
 		return err
 	}
 	if _, err := tx.Exec(ctx,
-		"INSERT INTO schema_migrations (version) VALUES ($1)", version,
+		"INSERT INTO app.schema_migrations (version) VALUES ($1)", version,
 	); err != nil {
 		return err
 	}
