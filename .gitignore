@@ -6,11 +6,10 @@ __pycache__/
 chroma_db/
 logs/
 dataset*
-pillar*
 relabel_dataset.py
 unified_backtest_log.json
 cleaned*
 *.png
-LOG/
+01LOG/
 backtest_runs/
 price_cache/
