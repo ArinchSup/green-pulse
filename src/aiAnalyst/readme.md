@@ -1,5 +1,2 @@
-Don't forget to:\
- -> "ollama pull llama3.1"\
- -> create a new model "news-v3" by using "ollama create news-v3 -f Modelfile.newsv3"\
- -> create a new model "technical-v3" by using "ollama create technical-v3 -f Modelfile.technicalv3"\
- -> change API Key and IS_LOCAL in .env
+1. On the server, run it once with RUN_MODE = "download". v68 is the big download; if the app always uses refresh=True, you can set RUN_FOLDERS = ["price_cache_v43"] and skip it. Then run entry_api_v105.py once so the first real request isn't slow.
+2. Each month, run the download again (your friend can schedule it for the 1st), then restart the app.

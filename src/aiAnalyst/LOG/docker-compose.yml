@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai_ollama_engine
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama  # Store Ollama data persistently
+    restart: always # Restart the container if it crashes
