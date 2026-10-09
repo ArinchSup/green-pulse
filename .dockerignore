@@ -1,8 +1,10 @@
 # Send the Docker builder only what the backend build needs.
 *
-!src/controller
-# ...and never local env files, even inside it.
-src/controller/**/*.env
+!backend
+# ...and never local env files or build output, even inside it.
+backend/**/*.env
+backend/**/*.exe
+backend/green-pulse
 **/.DS_Store
 **/__pycache__
 **/.dockerignore
