@@ -3,16 +3,17 @@ FROM golang:1.27 AS build
 WORKDIR /src
 
 # Dependencies first: this layer is reused until go.mod or go.sum change.
-COPY src/controller/go.mod src/controller/go.sum ./
+COPY backend/go.* ./
 RUN go mod download
 
-COPY src/controller/ ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/greenpulse .
+COPY backend/ ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/green-pulse ./cmd/green-pulse
+
 
 # ---- run stage: only the binary, no shell, no package manager ----
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/greenpulse /greenpulse
+COPY --from=build /out/green-pulse /green-pulse
 USER 65532:65532
 EXPOSE 8080
-ENTRYPOINT ["/greenpulse"]
+ENTRYPOINT ["/green-pulse"]
 CMD ["server"]
