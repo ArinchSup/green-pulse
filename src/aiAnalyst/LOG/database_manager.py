@@ -1,0 +1,173 @@
+import sqlite3
+import datetime
+from aiAnalyst.config import DB_NAME
+
+def setup_database():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stock_news (
+            news_id TEXT PRIMARY KEY,
+            ticker TEXT,
+            published_at DATETIME,
+            headline TEXT,
+            summary TEXT,
+            tags TEXT,
+            url TEXT,
+            ai_trend TEXT,
+            ai_scale INTEGER,
+            ai_reason TEXT
+        )
+    ''')
+    
+    # ai_predictions records for impovement in the future
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ai_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT,
+            analysis_date DATETIME,
+            target_date DATETIME,
+            horizon TEXT,
+            action TEXT,
+            confidence_score INTEGER,
+            current_price REAL,
+            entry_price REAL,
+            target_price REAL,
+            stop_loss REAL,
+            rationale TEXT, 
+            status TEXT DEFAULT 'pending'
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def save_and_get_new_news(ticker, clean_news_list):
+    if not clean_news_list:
+        return []
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    newly_added_news = []
+    for news in clean_news_list:
+        cursor.execute('''
+            INSERT OR IGNORE INTO stock_news 
+            (news_id, ticker, published_at, headline, summary, tags, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (str(news['id']), ticker, news['time'], news['headline'], news['summary'], news['related_tags'], news['url']))
+        if cursor.rowcount == 1:
+            newly_added_news.append(news)
+    conn.commit()
+    conn.close()
+    return newly_added_news
+
+def update_individual_analysis(news_id, analysis_data):
+    if not analysis_data: return
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    trend = analysis_data.get('trend') or analysis_data.get('Trend') or 'unknown'
+    scale = analysis_data.get('scale') or analysis_data.get('Scale') or 0
+    reason = analysis_data.get('reason') or analysis_data.get('Reason') or ''
+    cursor.execute('''
+        UPDATE stock_news SET ai_trend = ?, ai_scale = ?, ai_reason = ? WHERE news_id = ?
+    ''', (str(trend).lower(), scale, reason, str(news_id)))
+    conn.commit()
+    conn.close()
+    
+def get_old_news_ids(days=2):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cutoff_date = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    
+    cursor.execute("SELECT news_id FROM stock_news WHERE published_at < ?", (cutoff_date,))
+    ids = [row[0] for row in cursor.fetchall()]
+    
+    conn.close()
+    return ids
+
+def delete_old_news_from_db(news_ids):
+    if not news_ids:
+        return
+    
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    placeholders = ', '.join(['?'] * len(news_ids))
+    cursor.execute(f"DELETE FROM stock_news WHERE news_id IN ({placeholders})", news_ids)
+    
+    conn.commit()
+    conn.close()
+    print(f"Successfully deleted {len(news_ids)} old records from SQLite.")
+    
+def save_prediction(ticker, horizon, current_price, ai_analysis):
+    if not ai_analysis or ai_analysis.get("action") == "ERROR":
+        return
+
+    def parse_price(val):
+        try: return float(val)
+        except (ValueError, TypeError): return None
+
+    action = ai_analysis.get("action")
+    confidence = ai_analysis.get("confidence_score", 0)
+    entry_price = parse_price(ai_analysis.get("recommended_entry_price"))
+    target_price = parse_price(ai_analysis.get("target_price"))
+    stop_loss = parse_price(ai_analysis.get("stop_loss"))
+    
+    rationale = ""
+    if "analysis" in ai_analysis and "rationale" in ai_analysis["analysis"]:
+        rationale = ai_analysis["analysis"]["rationale"]
+
+    now = datetime.datetime.now()
+    if "Short-term" in horizon: target_date = now + datetime.timedelta(days=7)
+    elif "Mid-term" in horizon: target_date = now + datetime.timedelta(days=90)
+    else: target_date = now + datetime.timedelta(days=365)
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO ai_predictions 
+        (ticker, analysis_date, target_date, horizon, action, confidence_score, current_price, entry_price, target_price, stop_loss, rationale)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        ticker, now.strftime("%Y-%m-%d %H:%M:%S"), target_date.strftime("%Y-%m-%d %H:%M:%S"), 
+        horizon, action, confidence, current_price, entry_price, target_price, stop_loss, rationale # 🌟 ใส่ rationale ลงไป
+    ))
+    conn.commit()
+    conn.close()
+    
+def get_latest_prediction(ticker):
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        
+        horizons = ["Short-term", "Mid-term", "Long-term"]
+        quant_summaries = []
+        
+        for h in horizons:
+            cursor.execute('''
+                SELECT action, confidence_score, entry_price, target_price, stop_loss, rationale, analysis_date
+                FROM ai_predictions 
+                WHERE ticker = ? AND horizon LIKE ?
+                ORDER BY id DESC LIMIT 1
+            ''', (ticker, f"{h}%"))
+            
+            row = cursor.fetchone()
+            if row:
+                action, conf, entry, target, stop, rationale, date = row
+                
+                summary_block = (
+                    f"[{h} Analysis - {date}]\n"
+                    f"Signal: {action} with {conf}% Confidence\n"
+                    f"Price Targets -> Entry: {entry} | Target: {target} | Stop: {stop}\n"
+                    f"Quant Reasoning: {rationale}\n"
+                )
+                quant_summaries.append(summary_block)
+                
+        conn.close()
+        
+        if quant_summaries:
+            return "\n".join(quant_summaries)
+        else:
+            return "No recent quant analysis available in database."
+            
+    except Exception as e:
+        return f"Error fetching quant data: {e}"

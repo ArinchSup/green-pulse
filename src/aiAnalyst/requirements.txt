@@ -1,9 +1,0 @@
-fastapi
-uvicorn
-finnhub-python
-requests
-chromadb
-yfinance
-python-dotenv
-langchain
-langchain-ollama
